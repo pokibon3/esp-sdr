@@ -97,9 +97,10 @@ waterfall on the BOX-Lite's 320×240 ST7789 display without a host. It
 repeats 40 ms SPEC captures and redraws between them, so it analyzes only
 part of the signal. Each run keeps every bin's peak. The line shows the
 median of the last three runs, rising within a run and decaying over about
-four. The waterfall shows each run. The scale is dBFS, as in the host
-viewer (code / 2 − 84.3), with a 10 dB grid that follows the noise level.
-Wi-Fi channel numbers appear below the trace.
+four. The waterfall shows each run, coloured relative to the noise level.
+The trace scale is fixed from −20 to −80 dBFS, as in the host viewer
+(code / 2 − 84.3), with a 20 dB grid. Wi-Fi channel numbers appear below
+the trace.
 
 ENTER selects the highlighted setting: CENTER, SPAN, STEP or GAIN. PREV and
 NEXT lower and raise it. CENTER moves by STEP (1, 5, 10 or 20 MHz;
@@ -123,6 +124,59 @@ image is unchanged.
 idf.py -B build-s3-boxlite -DIDF_TARGET=esp32s3 -DSDKCONFIG=sdkconfig.s3-boxlite \
   "-DSDKCONFIG_DEFAULTS=sdkconfig.defaults.esp32s3;sdkconfig.defaults.esp32s3-boxlite" build
 ```
+
+#### 使い方（日本語）
+
+ESP32-S3-BOX-Lite の画面に、スペクトルとウォーターフォールを PC なしで表示する版です。
+
+**ビルドと書き込み**
+
+[Build and flash](#build-and-flash) の手順で ESP-IDF を用意し、`export.sh` を読み込んでから実行します。ポート名は `ls /dev/cu.usbmodem*`（macOS）などで確認してください。
+
+```sh
+idf.py -B build-s3-boxlite -DIDF_TARGET=esp32s3 -DSDKCONFIG=sdkconfig.s3-boxlite \
+  "-DSDKCONFIG_DEFAULTS=sdkconfig.defaults.esp32s3;sdkconfig.defaults.esp32s3-boxlite" build
+idf.py -B build-s3-boxlite -p /dev/cu.usbmodemXXXX flash
+```
+
+書き込むと、電源を入れるだけで表示が始まります。起動時は中心 2442 MHz（Wi-Fi ch7）、表示幅 80 MHz、ゲイン 45 です。
+
+**画面**
+
+| 場所 | 内容 |
+| --- | --- |
+| 上部 | CENTER / SPAN / STEP / GAIN の値。選択中の項目はオレンジで強調表示。中心が Wi-Fi チャンネルに一致すると ch 番号も表示 |
+| スペクトル | −20〜−80 dBFS 固定、20 dB ごとの目盛り（値は左側）。中央の縦線が中心周波数 |
+| チャンネル行 | Wi-Fi のチャンネル番号（2.4 GHz 帯 1〜14、5 GHz 帯）と中心位置の点線 |
+| 周波数 | 左端・中心・右端の周波数（MHz） |
+| ウォーターフォール | 上が最新。40 ms ごとの計測を色で表示 |
+
+**ボタン**
+
+| ボタン | 動作 |
+| --- | --- |
+| 中央 | 設定項目を CENTER → SPAN → STEP → GAIN の順に切り替え |
+| 左 | 選択中の値を下げる |
+| 右 | 選択中の値を上げる |
+
+| 項目 | 内容 |
+| --- | --- |
+| CENTER | 中心周波数。STEP の幅ずつ変わり、押し続けると連続で動く（100〜6000 MHz） |
+| SPAN | 表示幅 10 / 20 / 40 / 80 MHz |
+| STEP | CENTER の刻み幅 1 / 5 / 10 / 20 MHz（既定 10 MHz。5 MHz にすると Wi-Fi 1 チャンネルずつ） |
+| GAIN | 受信ゲインの番号。10 ずつ変わる（実測では番号 50 以上で 1 あたり約 1 dB） |
+
+**ブラウザビューアとの併用**
+
+PC からコマンドが届くと LCD 表示は止まり、[ブラウザ SDR ビューア](https://espargos.net/espsdr/app/) などで通常どおり使えます。PC 側が切断するか、5 秒間何も送らなければ LCD 表示に戻ります。LCD 表示中に固定していたゲインは、PC から使うときには元の設定（通常は AGC）に戻ります。
+
+**注意**
+
+- 40 ms 計測しては描画する繰り返しなので、信号の一部を取りこぼします。
+- スペクトルの線は 40 ms ごとのピーク値の直近 3 回の中央値です。平均電力を表示するブラウザより数 dB 高めに出ます。
+- 80 MHz 表示でも、受信部の特性で両端（およそ ch1 以下と ch13 以上）は感度が落ちます。
+- 数 cm の距離に強い送信機があると受信部が飽和し、ほかの信号が小さく見えます。
+- 標準の `esp32s3` ファームには影響しません。
 
 ## On-chip spectrum streaming
 
