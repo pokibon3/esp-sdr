@@ -379,6 +379,37 @@ static unsigned label_channels(unsigned mhz, unsigned span) {
     return at_lo;
 }
 
+/* A battery at the right of the GAIN box: outline, terminal nub and a bar
+ * to the charge, with the percentage inside, inverted where it crosses the
+ * bar. */
+#define BAT_W 29
+#define BAT_H 14
+#define BAT_NUB 2
+#define BAT_X (W - 4 - BAT_W - BAT_NUB)
+#define BAT_Y ((HDR_H - BAT_H) / 2)
+static void draw_battery(int percent, bool charging) {
+    percent = percent < 0 ? 0 : percent > 100 ? 100 : percent;
+    const int fill = (BAT_W - 4) * percent / 100;
+    for (int y = BAT_Y; y < BAT_Y + BAT_H; y++)
+        for (int dx = 0; dx < BAT_W + BAT_NUB; dx++) {
+            bool edge = dx < BAT_W && (y == BAT_Y || y == BAT_Y + BAT_H - 1 || dx == 0 || dx == BAT_W - 1);
+            bool nub = dx >= BAT_W && y >= BAT_Y + 4 && y < BAT_Y + BAT_H - 4;
+            bool level = dx >= 2 && dx < 2 + fill && y >= BAT_Y + 2 && y < BAT_Y + BAT_H - 2;
+            int px = BAT_X + dx;
+            if (edge || nub || level) canvas[y][px >> 3] |= (uint8_t)(1u << (px & 7));
+        }
+    char s[16];
+    snprintf(s, sizeof(s), "%s%d%%", charging ? "+" : "", percent);
+    const int width = 6 * (int)strlen(s) - 1, x0 = BAT_X + (BAT_W - width) / 2, y0 = BAT_Y + (BAT_H - 7) / 2;
+    for (const char *c = s; *c; c++)
+        for (int col = 0; col < 5; col++)
+            for (int row = 0; row < 8; row++) {
+                if (!(font[*c - 0x20][col] >> row & 1)) continue;
+                int px = x0 + (int)(c - s) * 6 + col;
+                canvas[y0 + row][px >> 3] ^= (uint8_t)(1u << (px & 7));
+            }
+}
+
 /* Waterfall colors follow the noise: the median of the displayed line in
  * 10 dB steps, with 4 dB of hysteresis, sits 20 dB above bottom_db. */
 static void place_scale(void) {
@@ -428,12 +459,15 @@ void lcd_view_draw(const lcd_view_info_t *info) {
         text(1, (int)m * BOX_W + 3, labels[m], 1);
         snprintf(box_value[m], sizeof(box_value[m]), "%u", values[m]);
     }
+    if (ch) {
+        snprintf(s, sizeof(s), "ch%u", ch);
+        text(1, -(BOX_W - 3), s, 1);
+    }
     if (info->status) {
         snprintf(s, sizeof(s), "ERR%u", (unsigned)info->status);
         text(1, -(W - 3), s, 1);
-    } else if (ch) {
-        snprintf(s, sizeof(s), "ch%u", ch);
-        text(1, -(BOX_W - 3), s, 1);
+    } else if (info->battery >= 0) {
+        draw_battery(info->battery, info->charging);
     }
     snprintf(s, sizeof(s), "%u", info->mhz - span / 2);
     text(HDR_H + 14, 0, s, 1);

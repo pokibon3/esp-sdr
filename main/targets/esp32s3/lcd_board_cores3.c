@@ -27,6 +27,10 @@
 #define I2C_TIMEOUT_MS 50
 
 #define AXP2101_ADDR 0x34
+#define AXP2101_STATUS1 0x00    /* bit 3: battery present */
+#define AXP2101_STATUS2 0x01    /* bits 6:5: 01 charging, 10 discharging */
+#define AXP2101_GAUGE_EN 0x18   /* bit 3: fuel gauge */
+#define AXP2101_BATTERY 0xa4    /* fuel gauge charge, percent */
 #define AXP2101_LDO_EN 0x90     /* bit 7: DLDO1 (backlight) */
 #define AXP2101_DLDO1_V 0x99    /* (mV - 500) / 100 */
 #define AW9523_ADDR 0x58
@@ -152,6 +156,7 @@ void lcd_board_init(unsigned max_rows, lcd_board_sent_cb_t sent) {
     touch = add_device(FT6336_ADDR, 100000);
 
     lcd_board_backlight(false);
+    reg_update(axp, AXP2101_GAUGE_EN, 0x08, 0x08);
     reg_write(axp, AXP2101_DLDO1_V, (3300 - 500) / 100);
     /* Touch on; LCD enable pulsed low as the panel's hardware reset. */
     reg_update(expander, AW9523_GCR, 0x10, 0x10);
@@ -191,6 +196,17 @@ void lcd_board_draw(int y0, int y1, const uint16_t *pixels) {
     esp_lcd_panel_io_tx_color(io, 0x2c, pixels, (size_t)LCD_BOARD_W * (y1 - y0) * sizeof(uint16_t));
 }
 
+int lcd_board_battery(bool *charging) {
+    const uint8_t regs[3] = {AXP2101_STATUS1, AXP2101_STATUS2, AXP2101_BATTERY};
+    uint8_t v[3];
+    *charging = false;
+    for (int i = 0; i < 3; i++)
+        if (i2c_master_transmit_receive(axp, &regs[i], 1, &v[i], 1, I2C_TIMEOUT_MS) != ESP_OK) return -1;
+    if (!(v[0] & 0x08)) return -1;
+    *charging = (v[1] >> 5 & 3) == 1;
+    return v[2] > 100 ? 100 : v[2];
+}
+
 lcd_key_t lcd_board_read_key(void) {
     uint8_t reg = FT6336_TD_STATUS, p[5];
     if (i2c_master_transmit_receive(touch, &reg, 1, p, sizeof(p), I2C_TIMEOUT_MS) != ESP_OK) return LCD_KEY_NONE;
@@ -204,10 +220,13 @@ size_t lcd_board_input_status(char *out, size_t size) {
     esp_err_t e = i2c_master_transmit_receive(touch, &reg, 1, p, sizeof(p), I2C_TIMEOUT_MS);
     uint8_t id_reg = FT6336_FIRMID, id = 0;
     esp_err_t e2 = i2c_master_transmit_receive(touch, &id_reg, 1, &id, 1, I2C_TIMEOUT_MS);
-    return (size_t)snprintf(out, size, "LCDINPUT touch err %d %02x%02x%02x%02x%02x%02x%02x id err %d %02x p0 %02x p1 %02x dir %02x %02x key %d\n",
+    bool charging;
+    int battery = lcd_board_battery(&charging);
+    return (size_t)snprintf(out, size, "LCDINPUT touch err %d %02x%02x%02x%02x%02x%02x%02x id err %d %02x p0 %02x p1 %02x dir %02x %02x key %d axp %02x %02x %02x battery %d%s\n",
                             e, p[0], p[1], p[2], p[3], p[4], p[5], p[6], e2, id, reg_read(expander, AW9523_OUT_P0),
                             reg_read(expander, AW9523_OUT_P1), reg_read(expander, AW9523_DIR_P0),
-                            reg_read(expander, AW9523_DIR_P1), (int)lcd_board_read_key());
+                            reg_read(expander, AW9523_DIR_P1), (int)lcd_board_read_key(), reg_read(axp, AXP2101_STATUS1),
+                            reg_read(axp, AXP2101_STATUS2), reg_read(axp, AXP2101_GAUGE_EN), battery, charging ? " charging" : "");
 }
 
 uint64_t lcd_board_pins(void) {

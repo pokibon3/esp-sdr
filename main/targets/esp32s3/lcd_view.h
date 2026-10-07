@@ -17,6 +17,8 @@ typedef struct {
     unsigned gain;      /* manual gain index */
     lcd_mode_t mode;    /* highlighted setting */
     uint32_t status;    /* ring_status_t of the last run */
+    int battery;        /* charge percent, or -1 without a battery reading */
+    bool charging;
 } lcd_view_info_t;
 
 /* Call before burst_serial_init(): reserves the LCD and button GPIOs. */

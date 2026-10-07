@@ -382,8 +382,14 @@ static void lcd_cycle(void) {
     lcd_view_capture_end(frequency_mhz,ring_capture_rate_hz(rate));
     rx_filter_restore();
     rx_filter=host_filter;
+    /* The fuel gauge changes slowly: read it about once a second. */
+    static int64_t battery_at;
+    static int battery=-1;
+    static bool charging;
+    if(esp_timer_get_time()>=battery_at){battery=lcd_board_battery(&charging);battery_at=esp_timer_get_time()+1000000;}
     const lcd_view_info_t info={.mhz=frequency_mhz,.rate_hz=ring_capture_rate_hz(rate),.span_mhz=lcd_spans[lcd_span],
-                                .step_mhz=lcd_steps[lcd_step],.gain=gain_code,.mode=(lcd_mode_t)lcd_mode,.status=r.status};
+                                .step_mhz=lcd_steps[lcd_step],.gain=gain_code,.mode=(lcd_mode_t)lcd_mode,.status=r.status,
+                                .battery=battery,.charging=charging};
     lcd_view_draw(&info);
 }
 #endif

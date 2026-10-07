@@ -88,6 +88,8 @@ lcd_key_t lcd_board_read_key(void) {
     return LCD_KEY_NONE;
 }
 
+int lcd_board_battery(bool *charging) { *charging = false; return -1; }
+
 size_t lcd_board_input_status(char *out, size_t size) {
     int raw = 0, mv = 0;
     esp_err_t e = adc_oneshot_read(adc, ADC_CHANNEL_0, &raw);

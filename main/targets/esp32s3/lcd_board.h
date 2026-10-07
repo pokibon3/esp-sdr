@@ -21,6 +21,8 @@ void lcd_board_backlight(bool on);
 void lcd_board_draw(int y0, int y1, const uint16_t *pixels);
 /* The input as a key, sampled now (no debouncing). */
 lcd_key_t lcd_board_read_key(void);
+/* Battery charge percent, or -1 without a battery or a fuel gauge. */
+int lcd_board_battery(bool *charging);
 /* Touch boards: the key for a touch at (x, y), in panel pixels. */
 lcd_key_t lcd_view_key_at(int x, int y);
 /* LCDINPUT? diagnostic: the raw input reading as text. */

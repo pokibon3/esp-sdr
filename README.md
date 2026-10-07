@@ -132,6 +132,8 @@ ILI9342C/E panel is powered through the AXP2101 and AW9523, and the
 FT6336 touch panel replaces the buttons. Tapping a mode box selects that
 setting. The three touch buttons below the screen, like the rest of the
 screen, lower the setting (left), cycle it (middle) and raise it (right).
+The status row shows the AXP2101 fuel gauge's battery charge at its right,
+with a + while charging.
 
 #### 使い方（日本語）
 
@@ -197,7 +199,7 @@ CoreS3 にはボタンがないので、タッチで操作します。
 | 画面下のタッチボタン中央（または画面の中央 1/3） | 項目を順に切り替え |
 | 画面下のタッチボタン右（または画面の右 1/3） | 選択中の値を上げる（押し続けると連続） |
 
-画面の内容とブラウザビューアとの併用は BOX-Lite 版と同じです。
+上部ステータス行の右端に、電池マークと残量 % を表示します（充電中は「+」付き）。それ以外の画面の内容とブラウザビューアとの併用は BOX-Lite 版と同じです。
 
 **注意**
 
