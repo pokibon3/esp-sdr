@@ -107,7 +107,7 @@ NEXT lower and raise it. CENTER moves by STEP (1, 5, 10 or 20 MHz;
 default 10). SPAN is 10, 20, 40 or 80 MHz; the 10 and 20 MHz spans show the
 centre of a 16 or 40 MS/s capture. GAIN is a manual gain index in steps of
 10, about 1 dB per index above 50 on the tested board. The view starts at
-2442 MHz (channel 7), an 80 MHz span and index 45. AGC would shift whole
+2442 MHz (channel 7), an 80 MHz span and index 35. AGC would shift whole
 spectra between the short runs.
 
 Under the host's automatic filter, the 40 and 80 MHz spans use a 40 MHz
@@ -117,7 +117,8 @@ the 80 MHz span shows roughly channels 2–12. A strong transmitter within a
 few centimetres compresses the other signals. Any host command restores
 the host's gain and pauses the view; it resumes when the serial lease is
 released or expires after five seconds of silence. `LCDDUMP?` returns the
-last run's peaks and the drawn line for diagnosis. The standard `esp32s3`
+last run's peaks and the drawn line, and `LCDINPUT?` the raw button or touch
+reading, for diagnosis. The standard `esp32s3`
 image is unchanged.
 
 ```sh
@@ -125,9 +126,16 @@ idf.py -B build-s3-boxlite -DIDF_TARGET=esp32s3 -DSDKCONFIG=sdkconfig.s3-boxlite
   "-DSDKCONFIG_DEFAULTS=sdkconfig.defaults.esp32s3;sdkconfig.defaults.esp32s3-boxlite" build
 ```
 
+The same view runs on the **M5Stack CoreS3** with
+`sdkconfig.defaults.esp32s3-cores3` in place of the BOX-Lite overlay. Its
+ILI9342C/E panel is powered through the AXP2101 and AW9523, and the
+FT6336 touch panel replaces the buttons. Tapping a mode box selects that
+setting. The three touch buttons below the screen, like the rest of the
+screen, lower the setting (left), cycle it (middle) and raise it (right).
+
 #### 使い方（日本語）
 
-ESP32-S3-BOX-Lite の画面に、スペクトルとウォーターフォールを PC なしで表示する版です。
+ESP32-S3-BOX-Lite（または M5Stack CoreS3）の画面に、スペクトルとウォーターフォールを PC なしで表示する版です。
 
 **ビルドと書き込み**
 
@@ -139,7 +147,7 @@ idf.py -B build-s3-boxlite -DIDF_TARGET=esp32s3 -DSDKCONFIG=sdkconfig.s3-boxlite
 idf.py -B build-s3-boxlite -p /dev/cu.usbmodemXXXX flash
 ```
 
-書き込むと、電源を入れるだけで表示が始まります。起動時は中心 2442 MHz（Wi-Fi ch7）、表示幅 80 MHz、ゲイン 45 です。
+書き込むと、電源を入れるだけで表示が始まります。起動時は中心 2442 MHz（Wi-Fi ch7）、表示幅 80 MHz、ゲイン 35 です。
 
 **画面**
 
@@ -169,6 +177,27 @@ idf.py -B build-s3-boxlite -p /dev/cu.usbmodemXXXX flash
 **ブラウザビューアとの併用**
 
 PC からコマンドが届くと LCD 表示は止まり、[ブラウザ SDR ビューア](https://espargos.net/espsdr/app/) などで通常どおり使えます。PC 側が切断するか、5 秒間何も送らなければ LCD 表示に戻ります。LCD 表示中に固定していたゲインは、PC から使うときには元の設定（通常は AGC）に戻ります。
+
+**M5Stack CoreS3**
+
+同じ表示を M5Stack CoreS3 でも使えます。ビルド時の設定ファイルを `sdkconfig.defaults.esp32s3-cores3` に替えます。
+
+```sh
+idf.py -B build-s3-cores3 -DIDF_TARGET=esp32s3 -DSDKCONFIG=sdkconfig.s3-cores3 \
+  "-DSDKCONFIG_DEFAULTS=sdkconfig.defaults.esp32s3;sdkconfig.defaults.esp32s3-cores3" build
+idf.py -B build-s3-cores3 -p /dev/cu.usbmodemXXXX flash
+```
+
+CoreS3 にはボタンがないので、タッチで操作します。
+
+| タッチする場所 | 動作 |
+| --- | --- |
+| 上部の CENTER / SPAN / STEP / GAIN の枠 | その項目を選ぶ |
+| 画面下のタッチボタン左（または画面の左 1/3） | 選択中の値を下げる（押し続けると連続） |
+| 画面下のタッチボタン中央（または画面の中央 1/3） | 項目を順に切り替え |
+| 画面下のタッチボタン右（または画面の右 1/3） | 選択中の値を上げる（押し続けると連続） |
+
+画面の内容とブラウザビューアとの併用は BOX-Lite 版と同じです。
 
 **注意**
 

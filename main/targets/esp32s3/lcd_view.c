@@ -1,45 +1,26 @@
-/* ESP32-S3-BOX-Lite standalone spectrum view.
+/* Standalone LCD spectrum view (CONFIG_ESP_SDR_LCD_VIEW).
  *
  * The receiver runs short 256-bin SPEC captures with the output queue routed
  * here instead of USB, then draws between runs with interrupts enabled. The
- * panel is the BOX-Lite ST7789 (320x240 landscape, SPI3); the three front
- * buttons share an ADC1 ladder on GPIO1. Pins and orientation follow
- * espressif/esp-bsp bsp/esp-box-lite. */
+ * panel and input come from the board layer (lcd_board.h). */
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
-#include "driver/gpio.h"
-#include "driver/spi_master.h"
-#include "esp_adc/adc_cali.h"
-#include "esp_adc/adc_cali_scheme.h"
-#include "esp_adc/adc_oneshot.h"
 #include "esp_attr.h"
 #include "esp_heap_caps.h"
-#include "esp_lcd_panel_io.h"
-#include "esp_lcd_panel_ops.h"
-#include "esp_lcd_panel_st7789.h"
 #include "esp_private/esp_gpio_reserve.h"
 #include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
 #include "freertos/task.h"
 
+#include "lcd_board.h"
 #include "lcd_font.h"
 #include "lcd_view.h"
 
-#define PIN_LCD_MOSI 6
-#define PIN_LCD_SCLK 7
-#define PIN_LCD_CS 5
-#define PIN_LCD_DC 4
-#define PIN_LCD_RST 48
-#define PIN_LCD_BL 45          /* active low */
-#define PIN_BUTTONS 1          /* ADC1 channel 0 */
-#define LCD_HOST SPI3_HOST
-#define LCD_PCLK_HZ 40000000
-
-#define W 320
-#define H 240
+#define W LCD_BOARD_W
+#define H LCD_BOARD_H
 #define HDR_H 26                /* mode boxes: label row, then a large value */
 #define VAL_Y 10                /* top row of the values (LCD_FONT_H tall) */
 #define BOX_W (W / LCD_MODES)
@@ -109,7 +90,6 @@ IRAM_ATTR static int view_sink(const uint8_t *p, unsigned n) {
 
 /* ---- display state ------------------------------------------------------ */
 
-static esp_lcd_panel_handle_t panel;
 static SemaphoreHandle_t free_stripes;
 static uint16_t *stripe[2];
 static uint16_t *palette;
@@ -126,8 +106,9 @@ static bool have_trace;
  * up, row by row because that heap is fragmented; stored rows are stretched
  * over the WF_H display rows. */
 static uint8_t *waterfall[WF_H];
+#define WF_COLS (BINS / 2)             /* each stored column: the louder of two bins */
 static unsigned wf_alloc, wf_head, wf_rows;
-#define WF_HEAP_RESERVE 6144u         /* IQS output buffer and driver slack */
+#define WF_HEAP_RESERVE 4096u         /* IQS output buffer and driver slack */
 static unsigned view_mhz, view_rate;
 static int bottom_db = 1000;           /* noise-tracked dBFS for the waterfall colors; 1000: unset */
 static uint8_t (*canvas)[W / 8];       /* text rows, 1 bit per pixel */
@@ -246,13 +227,14 @@ void lcd_view_capture_end(unsigned mhz, unsigned rate_hz) {
     if (!wf_sized) {
         wf_sized = true;
         while (wf_alloc < WF_H &&
-               heap_caps_get_free_size(MALLOC_CAP_8BIT | MALLOC_CAP_INTERNAL) > WF_HEAP_RESERVE + BINS &&
-               (waterfall[wf_alloc] = heap_caps_malloc(BINS, MALLOC_CAP_8BIT | MALLOC_CAP_INTERNAL)))
+               heap_caps_get_free_size(MALLOC_CAP_8BIT | MALLOC_CAP_INTERNAL) > WF_HEAP_RESERVE + WF_COLS &&
+               (waterfall[wf_alloc] = heap_caps_malloc(WF_COLS, MALLOC_CAP_8BIT | MALLOC_CAP_INTERNAL)))
             wf_alloc++;
     }
     if (wf_alloc) {
         wf_head = (wf_head + 1) % wf_alloc;
-        memcpy(waterfall[wf_head], trace, BINS);
+        for (unsigned c = 0; c < WF_COLS; c++)
+            waterfall[wf_head][c] = trace[2 * c] > trace[2 * c + 1] ? trace[2 * c] : trace[2 * c + 1];
         if (wf_rows < wf_alloc) wf_rows++;
     }
     have_trace = true;
@@ -349,14 +331,13 @@ static void compose_row(int y, uint16_t *o) {
         const uint8_t *row = waterfall[(wf_head + wf_alloc - r) % wf_alloc];
         const int low_x10 = (bottom_db + WF_LOW_DB) * 10;
         for (int x = 0; x < W; x++) {
-            int v = (CODE_DBFS_X10(row[view_first + x * view_bins / W]) - low_x10) * 255 / (WF_RANGE_DB * 10);
+            int v = (CODE_DBFS_X10(row[(view_first + x * view_bins / W) / 2]) - low_x10) * 255 / (WF_RANGE_DB * 10);
             o[x] = palette[v < 0 ? 0 : v > 255 ? 255 : v];
         }
     }
 }
 
-static bool stripe_sent(esp_lcd_panel_io_handle_t io, esp_lcd_panel_io_event_data_t *e, void *ctx) {
-    (void)io; (void)e; (void)ctx;
+static bool stripe_sent(void) {
     BaseType_t woken = pdFALSE;
     xSemaphoreGiveFromISR(free_stripes, &woken);
     return woken == pdTRUE;
@@ -465,7 +446,7 @@ send:
     for (int y0 = 0, cur = 0; y0 < H; y0 += STRIPE, cur ^= 1) {
         xSemaphoreTake(free_stripes, portMAX_DELAY);
         for (int r = 0; r < STRIPE; r++) compose_row(y0 + r, stripe[cur] + r * W);
-        esp_lcd_panel_draw_bitmap(panel, 0, y0, W, y0 + STRIPE, stripe[cur]);
+        lcd_board_draw(y0, y0 + STRIPE, stripe[cur]);
     }
     /* The next capture masks interrupts: let both transfers complete first. */
     xSemaphoreTake(free_stripes, portMAX_DELAY);
@@ -474,36 +455,32 @@ send:
     xSemaphoreGive(free_stripes);
 }
 
-/* ---- buttons ------------------------------------------------------------ */
+/* ---- input -------------------------------------------------------------- */
 
-static adc_oneshot_unit_handle_t adc;
-static adc_cali_handle_t adc_cali;
-
-static lcd_key_t read_key(void) {
-    int raw = 0, mv = 0;
-    if (adc_oneshot_read(adc, ADC_CHANNEL_0, &raw) != ESP_OK) return LCD_KEY_NONE;
-    if (!adc_cali || adc_cali_raw_to_voltage(adc_cali, raw, &mv) != ESP_OK) mv = raw * 3100 / 4095;
-    if (mv >= 2310 && mv <= 2510) return LCD_KEY_PREV;
-    if (mv >= 1880 && mv <= 2080) return LCD_KEY_ENTER;
-    if (mv >= 720 && mv <= 920) return LCD_KEY_NEXT;
-    return LCD_KEY_NONE;
+/* Touch boards: a mode box selects its setting; elsewhere, including a
+ * touch strip below the panel (CoreS3: y 240-279), the left third lowers,
+ * the middle cycles and the right third raises, like the buttons. */
+lcd_key_t lcd_view_key_at(int x, int y) {
+    if (x < 0 || x >= W || y < 0) return LCD_KEY_NONE;
+    if (y < HDR_H) return (lcd_key_t)(LCD_KEY_SELECT + x / BOX_W);
+    return x < W / 3 ? LCD_KEY_PREV : x >= 2 * W / 3 ? LCD_KEY_NEXT : LCD_KEY_ENTER;
 }
 
 lcd_key_t lcd_view_key(bool *repeat) {
     static lcd_key_t held;
     static int64_t repeat_at;
     *repeat = false;
-    lcd_key_t k = read_key();
-    /* Releasing NEXT sweeps the ladder through the other ranges. */
+    lcd_key_t k = lcd_board_read_key();
+    /* Releasing a ladder button sweeps it through the other ranges. */
     vTaskDelay(pdMS_TO_TICKS(2));
-    if (read_key() != k) return LCD_KEY_NONE;
+    if (lcd_board_read_key() != k) return LCD_KEY_NONE;
     int64_t now = esp_timer_get_time();
     if (k != held) {
         held = k;
         repeat_at = now + 500000;
         return k;
     }
-    if (k != LCD_KEY_NONE && k != LCD_KEY_ENTER && now >= repeat_at) {
+    if ((k == LCD_KEY_PREV || k == LCD_KEY_NEXT) && now >= repeat_at) {
         repeat_at = now + 150000;
         *repeat = true;
         return k;
@@ -528,44 +505,12 @@ void lcd_view_init(void) {
     for (int i = 0; i < 2; i++) stripe[i] = heap_caps_malloc(W * STRIPE * sizeof(uint16_t), MALLOC_CAP_DMA | MALLOC_CAP_INTERNAL);
     ESP_ERROR_CHECK(free_stripes && stripe[0] && stripe[1] ? ESP_OK : ESP_ERR_NO_MEM);
 
-    const spi_bus_config_t bus = {
-        .sclk_io_num = PIN_LCD_SCLK, .mosi_io_num = PIN_LCD_MOSI, .miso_io_num = -1,
-        .quadwp_io_num = -1, .quadhd_io_num = -1, .max_transfer_sz = W * STRIPE * sizeof(uint16_t),
-    };
-    ESP_ERROR_CHECK(spi_bus_initialize(LCD_HOST, &bus, SPI_DMA_CH_AUTO));
-    const esp_lcd_panel_io_spi_config_t io_config = {
-        .dc_gpio_num = PIN_LCD_DC, .cs_gpio_num = PIN_LCD_CS, .pclk_hz = LCD_PCLK_HZ,
-        .lcd_cmd_bits = 8, .lcd_param_bits = 8, .spi_mode = 0, .trans_queue_depth = 4,
-        .on_color_trans_done = stripe_sent,
-    };
-    esp_lcd_panel_io_handle_t io;
-    ESP_ERROR_CHECK(esp_lcd_new_panel_io_spi((esp_lcd_spi_bus_handle_t)LCD_HOST, &io_config, &io));
-    const esp_lcd_panel_dev_config_t panel_config = {
-        .reset_gpio_num = PIN_LCD_RST, .rgb_ele_order = LCD_RGB_ELEMENT_ORDER_RGB, .bits_per_pixel = 16,
-    };
-    ESP_ERROR_CHECK(esp_lcd_new_panel_st7789(io, &panel_config, &panel));
-    ESP_ERROR_CHECK(esp_lcd_panel_reset(panel));
-    ESP_ERROR_CHECK(esp_lcd_panel_init(panel));
-    ESP_ERROR_CHECK(esp_lcd_panel_invert_color(panel, true));
-    ESP_ERROR_CHECK(esp_lcd_panel_swap_xy(panel, true));
-    ESP_ERROR_CHECK(esp_lcd_panel_mirror(panel, false, true));
-    ESP_ERROR_CHECK(esp_lcd_panel_disp_on_off(panel, true));
-
-    const adc_oneshot_unit_init_cfg_t unit = {.unit_id = ADC_UNIT_1};
-    ESP_ERROR_CHECK(adc_oneshot_new_unit(&unit, &adc));
-    const adc_oneshot_chan_cfg_t chan = {.atten = ADC_ATTEN_DB_12, .bitwidth = ADC_BITWIDTH_DEFAULT};
-    ESP_ERROR_CHECK(adc_oneshot_config_channel(adc, ADC_CHANNEL_0, &chan));
-    const adc_cali_curve_fitting_config_t cali = {
-        .unit_id = ADC_UNIT_1, .chan = ADC_CHANNEL_0, .atten = ADC_ATTEN_DB_12, .bitwidth = ADC_BITWIDTH_DEFAULT,
-    };
-    if (adc_cali_create_scheme_curve_fitting(&cali, &adc_cali) != ESP_OK) adc_cali = NULL;
+    lcd_board_init(STRIPE, stripe_sent);
 
     /* Blank the panel before lighting the backlight. */
     const lcd_view_info_t idle = {.mhz = 0, .rate_hz = 0};
     lcd_view_draw(&idle);
-    gpio_set_direction(PIN_LCD_BL, GPIO_MODE_OUTPUT);
-    gpio_set_level(PIN_LCD_BL, 0);
+    lcd_board_backlight(true);
     /* Keep these pins out of the host GPIO control set. */
-    esp_gpio_reserve(BIT64(PIN_LCD_MOSI) | BIT64(PIN_LCD_SCLK) | BIT64(PIN_LCD_CS) | BIT64(PIN_LCD_DC) |
-                     BIT64(PIN_LCD_RST) | BIT64(PIN_LCD_BL) | BIT64(PIN_BUTTONS));
+    esp_gpio_reserve(lcd_board_pins());
 }

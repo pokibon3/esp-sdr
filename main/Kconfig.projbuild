@@ -59,16 +59,36 @@ endmenu
 menu "ESP-SDR LCD view"
 
     config ESP_SDR_LCD_VIEW
-        bool "ESP32-S3-BOX-Lite standalone LCD spectrum view"
+        bool "Standalone LCD spectrum view"
         depends on IDF_TARGET_ESP32S3
         default n
         help
-            Draw a spectrum and waterfall on the ESP32-S3-BOX-Lite ST7789
-            display while no host owns the serial link. The view runs short
-            SPEC captures and draws between them, so it does not analyze
-            every sample. Any host command stops the view until the serial
-            lease expires. The middle button selects CENTER, SPAN, STEP or
-            GAIN; the left and right buttons lower and raise it. The board's
-            LCD and button GPIOs are excluded from GPIO control.
+            Draw a spectrum and waterfall on the board's 320x240 display
+            while no host owns the serial link. The view runs short SPEC
+            captures and draws between them, so it does not analyze every
+            sample. Any host command stops the view until the serial lease
+            expires. The board's LCD and input GPIOs are excluded from GPIO
+            control.
+
+    choice ESP_SDR_LCD_BOARD
+        prompt "LCD view board"
+        depends on ESP_SDR_LCD_VIEW
+        default ESP_SDR_LCD_BOARD_BOXLITE
+
+        config ESP_SDR_LCD_BOARD_BOXLITE
+            bool "ESP32-S3-BOX-Lite"
+            help
+                ST7789 display. The middle button selects CENTER, SPAN, STEP
+                or GAIN; the left and right buttons lower and raise it.
+
+        config ESP_SDR_LCD_BOARD_CORES3
+            bool "M5Stack CoreS3"
+            help
+                ILI9342C/E display behind the AXP2101 and AW9523, FT6336
+                touch. Tapping a mode box selects it; elsewhere the left
+                third lowers, the middle third cycles and the right third
+                raises the setting.
+
+    endchoice
 
 endmenu

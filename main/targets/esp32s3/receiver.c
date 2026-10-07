@@ -27,6 +27,7 @@
 #include "esp_rom_sys.h"
 #include "ring_capture.h"
 #if CONFIG_ESP_SDR_LCD_VIEW
+#include "lcd_board.h"
 #include "lcd_view.h"
 #endif
 
@@ -324,9 +325,8 @@ static bool ring_command(const char *line) {
 #define LCD_RUN_MS 40u
 /* AGC retunes between the short runs, shifting whole spectra by tens of dB.
  * The view holds a manual index (about 1 dB per step above index 50,
- * measured on the BOX-Lite); 45 shows a ch3 AP and a nearby ESP-NOW sender
- * without lifting empty bins. The host's own gain returns on its command. */
-#define LCD_GAIN_DEFAULT 45u
+ * measured on the BOX-Lite). The host's own gain returns on its command. */
+#define LCD_GAIN_DEFAULT 35u
 #define LCD_GAIN_STEP 10u
 #define LCD_FILTER_MHZ 40u
 static bool lcd_gain_held;
@@ -347,7 +347,8 @@ static unsigned lcd_adjust(unsigned i,unsigned count,int dir) {
 static void lcd_cycle(void) {
     bool repeat;
     lcd_key_t key=lcd_view_key(&repeat);
-    if(key==LCD_KEY_ENTER) lcd_mode=(lcd_mode+1)%LCD_MODES;
+    if(key>=LCD_KEY_SELECT) lcd_mode=(unsigned)(key-LCD_KEY_SELECT)%LCD_MODES;
+    else if(key==LCD_KEY_ENTER) lcd_mode=(lcd_mode+1)%LCD_MODES;
     else if(key==LCD_KEY_PREV||key==LCD_KEY_NEXT) {
         const int dir=key==LCD_KEY_NEXT?1:-1;
         if(lcd_mode==LCD_MODE_CENTER) {
@@ -390,6 +391,7 @@ static void lcd_cycle(void) {
 static void handle_command(char *line) {
 #if CONFIG_ESP_SDR_LCD_VIEW
     if(!strcmp(line,"LCDDUMP?")){char h[1600];lcd_view_dump(h,sizeof(h));reply(h);return;}
+    if(!strcmp(line,"LCDINPUT?")){char h[160];lcd_board_input_status(h,sizeof(h));reply(h);return;}
 #endif
     if (burst_version_command(line)) return;
     if (burst_gpio_command(line)) return;

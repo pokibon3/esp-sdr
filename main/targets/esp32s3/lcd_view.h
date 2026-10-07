@@ -1,10 +1,11 @@
-/* ESP32-S3-BOX-Lite standalone spectrum view (CONFIG_ESP_SDR_LCD_VIEW). */
+/* Standalone LCD spectrum view (CONFIG_ESP_SDR_LCD_VIEW). */
 #pragma once
 
 #include <stdbool.h>
 #include <stdint.h>
 
-typedef enum { LCD_KEY_NONE, LCD_KEY_PREV, LCD_KEY_ENTER, LCD_KEY_NEXT } lcd_key_t;
+/* LCD_KEY_SELECT + m picks mode m directly (touch boards). */
+typedef enum { LCD_KEY_NONE, LCD_KEY_PREV, LCD_KEY_ENTER, LCD_KEY_NEXT, LCD_KEY_SELECT } lcd_key_t;
 /* ENTER cycles these; PREV/NEXT lower and raise the selected setting. */
 typedef enum { LCD_MODE_CENTER, LCD_MODE_SPAN, LCD_MODE_STEP, LCD_MODE_GAIN, LCD_MODES } lcd_mode_t;
 
