@@ -1,0 +1,14 @@
+# ESP32-S3-BOX-Lite overlay; apply after sdkconfig.defaults.esp32s3:
+#   -DSDKCONFIG_DEFAULTS="sdkconfig.defaults.esp32s3;sdkconfig.defaults.esp32s3-boxlite"
+CONFIG_ESP_SDR_LCD_VIEW=y
+# The board has 16 MB of flash; the 2 MB image layout is kept.
+# Static data must stay below the RF ring at 0x3fcb0000 (sram_guard.ld), and
+# IRAM code pushes DRAM up. The LCD path does not need IRAM-safe drivers:
+# it never draws during flash writes or while a capture masks interrupts.
+# CONFIG_SPI_MASTER_ISR_IN_IRAM is not set
+# CONFIG_SPI_SLAVE_ISR_IN_IRAM is not set
+# CONFIG_ESP_SPI_BUS_LOCK_ISR_FUNCS_IN_IRAM is not set
+# CONFIG_GDMA_CTRL_FUNC_IN_IRAM is not set
+# CONFIG_GDMA_ISR_HANDLER_IN_IRAM is not set
+# A 16 KB data cache returns 16 KB of SRAM to the heap for the waterfall.
+CONFIG_ESP32S3_DATA_CACHE_16KB=y

@@ -26,6 +26,9 @@
 #include "rx_lo.h"
 #include "esp_rom_sys.h"
 #include "ring_capture.h"
+#if CONFIG_ESP_SDR_LCD_VIEW
+#include "lcd_view.h"
+#endif
 
 /* Vendor S3 adctrig uses the 64 KiB aperture at 0x3fcd0000 (MAC_DUMP_USAGE=4).
  * The continuous ring also uses the two banks below it. Keep all three, in
@@ -315,7 +318,79 @@ static bool ring_command(const char *line) {
     return true;
 }
 
+#if CONFIG_ESP_SDR_LCD_VIEW
+/* Standalone LCD view: one short SPEC run, then a redraw. Host input ends
+ * the run early; the main loop then serves the command as usual. */
+#define LCD_RUN_MS 40u
+/* AGC retunes between the short runs, shifting whole spectra by tens of dB.
+ * The view holds a manual index (about 1 dB per step above index 50,
+ * measured on the BOX-Lite); 45 shows a ch3 AP and a nearby ESP-NOW sender
+ * without lifting empty bins. The host's own gain returns on its command. */
+#define LCD_GAIN_DEFAULT 45u
+#define LCD_GAIN_STEP 10u
+#define LCD_FILTER_MHZ 40u
+static bool lcd_gain_held;
+static burst_gain_mode_t lcd_host_mode;
+static unsigned lcd_host_gain;
+static void lcd_release_gain(void) {
+    if(!lcd_gain_held)return;
+    gain_mode=lcd_host_mode;gain_code=lcd_host_gain;rx_ready=false;lcd_gain_held=false;
+}
+static const unsigned lcd_spans[]={10,20,40,80}, lcd_steps[]={1,5,10,20};
+static unsigned lcd_mode=LCD_MODE_CENTER, lcd_span=3, lcd_step=2, lcd_gain=LCD_GAIN_DEFAULT;
+/* Rates are 16, 40 and 80 MS/s: the 10 and 20 MHz spans show the centre of
+ * a 16 or 40 MS/s capture. */
+static unsigned lcd_rate(void) { return lcd_spans[lcd_span]>=80?0:lcd_spans[lcd_span]>=20?1:6; }
+static unsigned lcd_adjust(unsigned i,unsigned count,int dir) {
+    return dir<0?(i?i-1:0):(i+1<count?i+1:i);
+}
+static void lcd_cycle(void) {
+    bool repeat;
+    lcd_key_t key=lcd_view_key(&repeat);
+    if(key==LCD_KEY_ENTER) lcd_mode=(lcd_mode+1)%LCD_MODES;
+    else if(key==LCD_KEY_PREV||key==LCD_KEY_NEXT) {
+        const int dir=key==LCD_KEY_NEXT?1:-1;
+        if(lcd_mode==LCD_MODE_CENTER) {
+            int f=(int)frequency_mhz+dir*(int)lcd_steps[lcd_step];
+            if(f<(int)S3_FREQ_MIN)f=S3_FREQ_MIN;
+            if(f>(int)S3_FREQ_MAX)f=S3_FREQ_MAX;
+            if((unsigned)f!=frequency_mhz){frequency_mhz=(unsigned)f;rx_ready=false;}
+        } else if(!repeat && lcd_mode==LCD_MODE_SPAN) lcd_span=lcd_adjust(lcd_span,4,dir);
+        else if(!repeat && lcd_mode==LCD_MODE_STEP) lcd_step=lcd_adjust(lcd_step,4,dir);
+        else if(lcd_mode==LCD_MODE_GAIN) {
+            int g=(int)lcd_gain+dir*(int)LCD_GAIN_STEP;
+            if(g>=0 && g<=(int)gain_max())lcd_gain=(unsigned)g;
+        }
+    }
+    if(!lcd_gain_held){lcd_host_mode=gain_mode;lcd_host_gain=gain_code;lcd_gain_held=true;}
+    if(gain_mode!=GAIN_MANUAL || gain_code!=lcd_gain){gain_mode=GAIN_MANUAL;gain_code=lcd_gain;rx_ready=false;}
+    const unsigned rate=lcd_rate();
+    ring_config_t c={.mode=RING_MODE_SPEC,.rate=rate,.nfft=256,.duration_ms=LCD_RUN_MS,.stride=1,.units_per_frame=1,
+                   .keep_input=true};
+    ring_result_t r;
+    /* Under the host's automatic filter, the 80 and 40 MS/s captures pass
+     * only about 25 MHz. Measured on the BOX-Lite at 80 MS/s, a 40 MHz
+     * filter adds ch2-ch12; the widest setting lifted the whole band with
+     * spurious energy. */
+    const int host_filter=rx_filter;
+    if(host_filter<0 && lcd_spans[lcd_span]>=40)rx_filter=rx_bandwidth_dcap(LCD_FILTER_MHZ);
+    prepare_rx();
+    rx_filter_apply();
+    lcd_view_capture_begin();
+    ring_capture_run(&c,&r);
+    lcd_view_capture_end(frequency_mhz,ring_capture_rate_hz(rate));
+    rx_filter_restore();
+    rx_filter=host_filter;
+    const lcd_view_info_t info={.mhz=frequency_mhz,.rate_hz=ring_capture_rate_hz(rate),.span_mhz=lcd_spans[lcd_span],
+                                .step_mhz=lcd_steps[lcd_step],.gain=gain_code,.mode=(lcd_mode_t)lcd_mode,.status=r.status};
+    lcd_view_draw(&info);
+}
+#endif
+
 static void handle_command(char *line) {
+#if CONFIG_ESP_SDR_LCD_VIEW
+    if(!strcmp(line,"LCDDUMP?")){char h[1600];lcd_view_dump(h,sizeof(h));reply(h);return;}
+#endif
     if (burst_version_command(line)) return;
     if (burst_gpio_command(line)) return;
     if(!strcmp(line,"TRANSPORT?")) {
@@ -422,6 +497,11 @@ void app_main(void) {
     /* USB may be unplugged when the host uses the UART bridge. */
     (void)usb_serial_jtag_wait_tx_done(pdMS_TO_TICKS(100));
     ESP_ERROR_CHECK(usb_serial_jtag_driver_uninstall());
+#if CONFIG_ESP_SDR_LCD_VIEW
+    lcd_view_init(); /* before GPIO control claims the free pins */
+    /* Start centered on the 2.4 GHz Wi-Fi band (ch7). */
+    frequency_mhz=2442;rx_ready=false;
+#endif
     burst_serial_init();
     ring_capture_init();
     char line[128];
@@ -430,9 +510,17 @@ void app_main(void) {
     for(;;) {
         if(esp_timer_get_time()>=lease_deadline)owner=-1;
         int status=burst_serial_poll_line(line,sizeof(line));
-        if(!status){vTaskDelay(1);continue;}
+        if(!status){
+#if CONFIG_ESP_SDR_LCD_VIEW
+            if(owner<0){lcd_cycle();continue;}
+#endif
+            vTaskDelay(1);continue;
+        }
         int port=burst_serial_port();
         if(owner>=0 && owner!=port){reply("ERR busy\n");continue;}
+#if CONFIG_ESP_SDR_LCD_VIEW
+        lcd_release_gain(); /* the host sees its own gain mode */
+#endif
         if(status<0){reply("ERR command_length\n");continue;}
         owner=port;
         if(!strcmp(line,"RELEASE")) {

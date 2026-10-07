@@ -55,3 +55,20 @@ menu "ESP-SDR transport"
         default 44
 
 endmenu
+
+menu "ESP-SDR LCD view"
+
+    config ESP_SDR_LCD_VIEW
+        bool "ESP32-S3-BOX-Lite standalone LCD spectrum view"
+        depends on IDF_TARGET_ESP32S3
+        default n
+        help
+            Draw a spectrum and waterfall on the ESP32-S3-BOX-Lite ST7789
+            display while no host owns the serial link. The view runs short
+            SPEC captures and draws between them, so it does not analyze
+            every sample. Any host command stops the view until the serial
+            lease expires. The middle button selects CENTER, SPAN, STEP or
+            GAIN; the left and right buttons lower and raise it. The board's
+            LCD and button GPIOs are excluded from GPIO control.
+
+endmenu

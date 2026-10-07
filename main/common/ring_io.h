@@ -28,7 +28,14 @@ static int ring_read_byte(uint8_t *b) {
     return 0;
 #endif
 }
+#if CONFIG_ESP_SDR_LCD_VIEW
+/* Set only for LCD-view runs: frames go to the display, never to a host. */
+extern int (*ring_local_sink)(const uint8_t *p,unsigned n);
+#endif
 static int ring_write(const uint8_t *p,unsigned n) {
+#if CONFIG_ESP_SDR_LCD_VIEW
+    if(ring_local_sink)return ring_local_sink(p,n);
+#endif
     if(burst_serial_port()==BURST_SERIAL_UART)return uart_tx_chars(UART_NUM_0,(const char *)p,n);
 #if SOC_USB_SERIAL_JTAG_SUPPORTED
     if(!usb_serial_jtag_ll_txfifo_writable())return 0;

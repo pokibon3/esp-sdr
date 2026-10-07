@@ -88,6 +88,42 @@ gap flags and CRC32 checksums; host stalls or processing overruns can cause
 sample loss. See the [continuous I/Q protocol](docs/iq-stream.md) for command
 options, sample formats, filtering and frequency-offset tuning.
 
+<a id="s3-box-lite"></a>
+
+### **ESP32-S3-BOX-Lite**: standalone LCD spectrum view
+
+The optional `CONFIG_ESP_SDR_LCD_VIEW` build draws a 256-bin spectrum and
+waterfall on the BOX-Lite's 320×240 ST7789 display without a host. It
+repeats 40 ms SPEC captures and redraws between them, so it analyzes only
+part of the signal. Each run keeps every bin's peak. The line shows the
+median of the last three runs, rising within a run and decaying over about
+four. The waterfall shows each run. The scale is dBFS, as in the host
+viewer (code / 2 − 84.3), with a 10 dB grid that follows the noise level.
+Wi-Fi channel numbers appear below the trace.
+
+ENTER selects the highlighted setting: CENTER, SPAN, STEP or GAIN. PREV and
+NEXT lower and raise it. CENTER moves by STEP (1, 5, 10 or 20 MHz;
+default 10). SPAN is 10, 20, 40 or 80 MHz; the 10 and 20 MHz spans show the
+centre of a 16 or 40 MS/s capture. GAIN is a manual gain index in steps of
+10, about 1 dB per index above 50 on the tested board. The view starts at
+2442 MHz (channel 7), an 80 MHz span and index 45. AGC would shift whole
+spectra between the short runs.
+
+Under the host's automatic filter, the 40 and 80 MHz spans use a 40 MHz
+analog filter. The automatic filter passes only about 25 MHz, and the
+widest one raised every bin with spurious energy on the tested board, so
+the 80 MHz span shows roughly channels 2–12. A strong transmitter within a
+few centimetres compresses the other signals. Any host command restores
+the host's gain and pauses the view; it resumes when the serial lease is
+released or expires after five seconds of silence. `LCDDUMP?` returns the
+last run's peaks and the drawn line for diagnosis. The standard `esp32s3`
+image is unchanged.
+
+```sh
+idf.py -B build-s3-boxlite -DIDF_TARGET=esp32s3 -DSDKCONFIG=sdkconfig.s3-boxlite \
+  "-DSDKCONFIG_DEFAULTS=sdkconfig.defaults.esp32s3;sdkconfig.defaults.esp32s3-boxlite" build
+```
+
 ## On-chip spectrum streaming
 
 The firmware can compute FFTs on the device and send compact spectra instead

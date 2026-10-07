@@ -45,6 +45,12 @@ if(IDF_TARGET STREQUAL "esp32s3")
     list(APPEND dependencies esp-dsp)
     list(APPEND fragments "${target_dir}/linker.lf")
     list(APPEND probes SAMPLE_RATE_PROBE FILTER_REGISTER_PROBE S3_RF_PROBE)
+    # Requirements are resolved before Kconfig values exist; unused
+    # components add no code to the standard image.
+    list(APPEND dependencies esp_lcd esp_adc esp_driver_spi)
+    if(CONFIG_ESP_SDR_LCD_VIEW)
+        list(APPEND sources "${target_dir}/lcd_view.c")
+    endif()
 elseif(IDF_TARGET STREQUAL "esp32c5" OR IDF_TARGET STREQUAL "esp32c6" OR IDF_TARGET STREQUAL "esp32c61")
     set(receiver "families/c5_c6_c61/receiver.c")
     if(IDF_TARGET STREQUAL "esp32c6" AND FILTER_REGISTER_PROBE)

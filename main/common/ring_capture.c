@@ -1729,7 +1729,9 @@ RING_HOT void ring_capture_run(const ring_config_t *cfg, ring_result_t *r) {
     REG_WRITE(DUMP_BANK_SELECT_REG, bank_sel_saved);
     r->elapsed_us = (uint64_t)(esp_timer_get_time() - t_start);
     r->pairs = index;
-    (void)host_input(); /* consume the stop request so the parser never sees it */
+    /* Consume the stop request so the parser never sees it. A self-timed
+     * run that a host interrupts must keep that host's command instead. */
+    if (!cfg->keep_input) (void)host_input();
 #if !CONFIG_IDF_TARGET_ESP32S3
     if (spec) {
         while(scalar_work())txq_pump();

@@ -59,6 +59,7 @@ typedef struct {
     unsigned units_per_frame;  /* SPEC: units merged into one output frame */
     bool max_hold;             /* SPEC: per-bin max instead of mean power */
     bool stats;                /* SPEC: insert SPS1 statistics frames (~4/s) */
+    bool keep_input;           /* leave host input for the command parser (LCD view) */
     unsigned iq_dec;           /* IQ: decimation 64..1024 (power of two), two-stage FIR */
     unsigned iq_bits;          /* IQ: 4, 8 or 16 bits per component */
     unsigned iq_shift;         /* IQ: rounding right shift of the FIR output (10-bit sample * 32) */
