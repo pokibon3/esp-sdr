@@ -2,7 +2,7 @@
 """Generate the anti-aliased digit font of the BOX-Lite LCD view.
 
 Renders 0-9 and '-' from a TrueType font (DejaVu Sans Bold) into 4-bit
-alpha glyphs of fixed height, written as main/targets/esp32s3/lcd_font.h.
+alpha glyphs of fixed height, written as main/lcd/lcd_font.h.
 Requires Pillow. The font's license text is copied into the header.
 """
 import argparse
@@ -58,7 +58,7 @@ def main():
     parser.add_argument('license', type=Path, help="the font's LICENSE file")
     parser.add_argument('--height', type=int, default=16)
     parser.add_argument('--size', type=int, default=21, help='font size in pixels')
-    parser.add_argument('--output', type=Path, default=root / 'main/targets/esp32s3/lcd_font.h')
+    parser.add_argument('--output', type=Path, default=root / 'main/lcd/lcd_font.h')
     a = parser.parse_args()
     glyphs = render(a.font, a.height, a.size)
     a.output.write_text(header(glyphs, a.height, a.font.name, a.license.read_text()))

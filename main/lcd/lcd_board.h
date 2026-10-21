@@ -1,5 +1,5 @@
 /* Board layer of the LCD view: one 320x240 panel and its input.
- * lcd_board_boxlite.c and lcd_board_cores3.c implement it. */
+ * lcd_board_boxlite.c, lcd_board_cores3.c and lcd_board_cyd.c implement it. */
 #pragma once
 
 #include <stdbool.h>

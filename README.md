@@ -135,9 +135,28 @@ screen, lower the setting (left), cycle it (middle) and raise it (right).
 The status row shows the AXP2101 fuel gauge's battery charge at its right,
 with a + while charging.
 
+The original ESP32 runs the view on the **ESP32-2432S028R** ("Cheap Yellow
+Display", 2.8-inch ILI9341) with `sdkconfig.defaults.esp32-cyd` on top of
+`sdkconfig.defaults.esp32`. The ESP32 has no ring backend: each run repeats
+16128-sample snapshots for about 40 ms and keeps every bin's peak over
+their 256-point FFTs, so it analyzes a smaller part of the signal than the
+S3. The XPT2046 resistive touch works like the CoreS3's screen: a mode box
+selects its setting, and the left, middle and right thirds lower, cycle and
+raise it. Touch calibration uses common CYD raw limits (`TOUCH_*` in
+`main/lcd/lcd_board_cyd.c`); `LCDINPUT?` prints the raw reading. The host
+uses the board's USB-UART bridge as usual; a command pauses the view until
+`RELEASE` or five seconds of silence. Gain index 35 is the S3's default and
+is not characterized on the ESP32. Boards with an ST7789 panel (two USB
+ports) are not supported.
+
+```sh
+idf.py -B build-esp32-cyd -DIDF_TARGET=esp32 -DSDKCONFIG=sdkconfig.esp32-cyd \
+  "-DSDKCONFIG_DEFAULTS=sdkconfig.defaults.esp32;sdkconfig.defaults.esp32-cyd" build
+```
+
 #### 使い方（日本語）
 
-ESP32-S3-BOX-Lite（または M5Stack CoreS3）の画面に、スペクトルとウォーターフォールを PC なしで表示する版です。
+ESP32-S3-BOX-Lite（または M5Stack CoreS3、ESP32-2432S028R）の画面に、スペクトルとウォーターフォールを PC なしで表示する版です。
 
 **ビルドと書き込み**
 
@@ -200,6 +219,23 @@ CoreS3 にはボタンがないので、タッチで操作します。
 | 画面下のタッチボタン右（または画面の右 1/3） | 選択中の値を上げる（押し続けると連続） |
 
 上部ステータス行の右端に、電池マークと残量 % を表示します（充電中は「+」付き）。それ以外の画面の内容とブラウザビューアとの併用は BOX-Lite 版と同じです。
+
+**ESP32-2432S028R（CYD 2.8 インチ）**
+
+無印 ESP32 の CYD（ILI9341 版）でも同じ表示を使えます。設定ファイルは `sdkconfig.defaults.esp32` に `sdkconfig.defaults.esp32-cyd` を重ねます。
+
+```sh
+idf.py -B build-esp32-cyd -DIDF_TARGET=esp32 -DSDKCONFIG=sdkconfig.esp32-cyd \
+  "-DSDKCONFIG_DEFAULTS=sdkconfig.defaults.esp32;sdkconfig.defaults.esp32-cyd" build
+idf.py -B build-esp32-cyd -p /dev/cu.usbserial-XXXX flash
+```
+
+操作は CoreS3 と同じくタッチです（上部の枠で項目を選択、画面の左・中央・右 1/3 で下げる・切り替え・上げる）。抵抗膜タッチなので、しっかり押してください。位置がずれる場合は `main/lcd/lcd_board_cyd.c` の `TOUCH_*` を調整します（`LCDINPUT?` で生の値を確認できます）。
+
+- ESP32 には S3 のような連続取り込みがないため、約 40 ms の間 16128 サンプルずつの取り込みを繰り返し、256 点 FFT のピークを表示します。S3 版より取りこぼしが多くなります。
+- ゲイン 35 は S3 の既定値で、ESP32 では未評価です。
+- PC からは基板の USB シリアル（UART）で通常どおり使えます。コマンドが届くと表示が止まり、`RELEASE` または 5 秒の無通信で戻ります。
+- USB 端子が 2 つある ST7789 版の CYD には対応していません。
 
 **注意**
 

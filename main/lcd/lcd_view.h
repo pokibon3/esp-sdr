@@ -16,7 +16,7 @@ typedef struct {
     unsigned step_mhz;  /* CENTER step */
     unsigned gain;      /* manual gain index */
     lcd_mode_t mode;    /* highlighted setting */
-    uint32_t status;    /* ring_status_t of the last run */
+    uint32_t status;    /* ring_status_t of the last run, or nonzero on a failed capture */
     int battery;        /* charge percent, or -1 without a battery reading */
     bool charging;
 } lcd_view_info_t;
@@ -25,8 +25,12 @@ typedef struct {
 void lcd_view_init(void);
 /* Button press, or auto-repeat (*repeat set) while PREV/NEXT is held. */
 lcd_key_t lcd_view_key(bool *repeat);
-/* Route SPEC frames of the next ring_capture_run() into the view. */
+/* Start a run: route SPEC frames of the next ring_capture_run() (S3) into
+ * the view, or take lcd_view_add_spectrum() calls. */
 void lcd_view_capture_begin(void);
+/* Snapshot backends, between begin and end: one FFT's 256 power codes
+ * (SPC1 wire codes), natural FFT order. */
+void lcd_view_add_spectrum(const uint8_t *codes);
 /* Bins are LO-relative: a new LO or rate restarts the line and history. */
 void lcd_view_capture_end(unsigned mhz, unsigned rate_hz);
 /* Diagnostic snapshot of the last run (LCDDUMP? command). */

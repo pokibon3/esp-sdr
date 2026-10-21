@@ -1,8 +1,9 @@
 /* Standalone LCD spectrum view (CONFIG_ESP_SDR_LCD_VIEW).
  *
- * The receiver runs short 256-bin SPEC captures with the output queue routed
- * here instead of USB, then draws between runs with interrupts enabled. The
- * panel and input come from the board layer (lcd_board.h). */
+ * The receiver runs short 256-bin captures, then draws between runs with
+ * interrupts enabled. S3 routes the SPEC output queue of a ring run here
+ * instead of USB; the ESP32 hands over each snapshot FFT. The panel and
+ * input come from the board layer (lcd_board.h). */
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -86,6 +87,13 @@ IRAM_ATTR static int view_sink(const uint8_t *p, unsigned n) {
         }
     }
     return (int)n;
+}
+
+/* Snapshot backends: one FFT's power codes, natural order. */
+void lcd_view_add_spectrum(const uint8_t *codes) {
+    for (unsigned b = 0; b < BINS; b++)
+        if (codes[b] > acc[b]) acc[b] = codes[b];
+    acc_frames++;
 }
 
 /* ---- display state ------------------------------------------------------ */
@@ -211,8 +219,8 @@ void lcd_view_capture_end(unsigned mhz, unsigned rate_hz) {
         have_trace = false;
     }
     if (!acc_frames) return;
-    /* Natural FFT order puts 0 Hz first, and on S3 RF above the LO lands at
-     * negative baseband frequency: bin b shows LO - b * fs / N. */
+    /* Natural FFT order puts 0 Hz first, and on S3 and ESP32 RF above the LO
+     * lands at negative baseband frequency: bin b shows LO - b * fs / N. */
     for (unsigned b = 0; b < BINS; b++) trace[(BINS + BINS / 2 - b) % BINS] = acc[b];
     if (!have_trace) for (unsigned k = 0; k < 3; k++) memcpy(recent + k * BINS, trace, BINS);
     recent_head = (recent_head + 1) % 3;

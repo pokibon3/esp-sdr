@@ -28,6 +28,15 @@
 #include "soc/dport_reg.h"
 #include "soc/dport_access.h"
 #include "heap_memory_layout.h"
+#if CONFIG_ESP_SDR_LCD_VIEW
+#include <math.h>
+#include "dsps_fft2r.h"
+#include "spectrum_dc.h"
+#include "spectrum_fft.h"
+#include "spectrum_math.h"
+#include "lcd_board.h"
+#include "lcd_view.h"
+#endif
 
 /* Reserve both SRAM banks, including their instruction aliases. Mode 2 only
  * exposes 32 KiB to MAC; mode 3 exposes the entire 64 KiB capture aperture. */
@@ -65,7 +74,10 @@ extern void rom_pbus_xpd_rx_on(int);
 extern void rom_pbus_xpd_tx_off(void);
 extern void rom_set_rxclk_en(int);
 
+/* The LCD view's captures have no host to report errors to. */
+static bool lcd_quiet;
 static void reply(const char *fmt, ...) {
+    if (lcd_quiet) return;
     char text[256];
     va_list ap;
     va_start(ap, fmt);
@@ -201,8 +213,113 @@ static bool capture_rate(unsigned n, unsigned rate, unsigned format) {
     return capture(n, 0, rate == 0 ? 1 : rate == 1 ? 2 : 0, format);
 }
 
+#if CONFIG_ESP_SDR_LCD_VIEW
+/* Standalone LCD view: snapshots for about LCD_RUN_MS, each cut into 256-bin
+ * FFTs, then a redraw. Settings, gain hold and filter follow the S3 view;
+ * the gain index is not characterized on the ESP32. */
+#define LCD_RUN_MS 40u
+#define LCD_BINS 256u
+#define LCD_GAIN_DEFAULT 35u
+#define LCD_GAIN_STEP 10u
+#define LCD_FILTER_MHZ 40u
+static bool lcd_gain_held, lcd_host_agc;
+static unsigned lcd_host_gain;
+static void lcd_release_gain(void) {
+    if (!lcd_gain_held) return;
+    hardware_agc = lcd_host_agc; gain_code = lcd_host_gain; apply_gain(); lcd_gain_held = false;
+}
+static const unsigned lcd_spans[] = {10, 20, 40, 80}, lcd_steps[] = {1, 5, 10, 20};
+static unsigned lcd_mode = LCD_MODE_CENTER, lcd_span = 3, lcd_step = 2, lcd_gain = LCD_GAIN_DEFAULT;
+/* 16, 40 and 80 MS/s: the 10 and 20 MHz spans show the centre of a 16 or
+ * 40 MS/s capture. */
+static unsigned lcd_rate(void) { return lcd_spans[lcd_span] >= 80 ? 0 : lcd_spans[lcd_span] >= 20 ? 1 : 6; }
+static unsigned lcd_rate_hz(unsigned rate) { return rate == 0 ? 80000000 : rate == 1 ? 40000000 : 16000000; }
+static unsigned lcd_adjust(unsigned i, unsigned count, int dir) {
+    return dir < 0 ? (i ? i - 1 : 0) : (i + 1 < count ? i + 1 : i);
+}
+static void lcd_tune(unsigned mhz) {
+    frequency_mhz = mhz; tune_rx(mhz); prepare_rx(); apply_gain();
+}
+static void lcd_no_poll(void *context) { (void)context; }
+/* Same scaling as SPEC (spectrum.c), so the codes match the host's dBFS. */
+static bool lcd_capture(unsigned rate) {
+    static int16_t fft[2 * LCD_BINS] __attribute__((aligned(16)));
+    static int16_t window[LCD_BINS];
+    static uint8_t codes[LCD_BINS];
+    if (!window[LCD_BINS / 2]) {
+        if (!spectrum_fft_init()) return false;
+        for (unsigned j = 0; j < LCD_BINS; j++) window[j] = (int16_t)lrintf(16383.5f * (1 - cosf(2 * M_PI * j / LCD_BINS)));
+    }
+    const unsigned n = MAX_SAMPLES / LCD_BINS * LCD_BINS;
+    spectrum_dc_t dc = {0};
+    const int64_t start = esp_timer_get_time();
+    do {
+        const uint32_t *words; unsigned elapsed;
+        if (!spectrum_acquire(n, rate, &words, &elapsed)) return false;
+        for (unsigned at = 0; at < n; at += LCD_BINS) {
+            for (unsigned j = 0; j < LCD_BINS; j++) {
+                const uint32_t w = words[at + j];
+                const int32_t i = (int32_t)(w << 22) >> 22, q = (int32_t)(w << 12) >> 22;
+                fft[2 * j] = spectrum_sat16((i * window[j]) >> 9);
+                fft[2 * j + 1] = spectrum_sat16((q * window[j]) >> 9);
+            }
+            spectrum_fft_poll(fft, LCD_BINS, dsps_fft_w_table_sc16, lcd_no_poll, NULL);
+            spectrum_dc_apply(&dc, fft, LCD_BINS);
+            /* The FFT leaves bit-reversed order. */
+            for (unsigned j = 0, bin = 0; j < LCD_BINS; j++) {
+                codes[bin] = spectrum_power_code(spectrum_complex_power(fft[2 * j], fft[2 * j + 1]));
+                unsigned bit = LCD_BINS >> 1;
+                while (bin & bit) { bin ^= bit; bit >>= 1; }
+                bin ^= bit;
+            }
+            lcd_view_add_spectrum(codes);
+        }
+    } while (esp_timer_get_time() - start < LCD_RUN_MS * 1000);
+    return true;
+}
+static void lcd_cycle(void) {
+    bool repeat;
+    lcd_key_t key = lcd_view_key(&repeat);
+    if (key >= LCD_KEY_SELECT) lcd_mode = (unsigned)(key - LCD_KEY_SELECT) % LCD_MODES;
+    else if (key == LCD_KEY_ENTER) lcd_mode = (lcd_mode + 1) % LCD_MODES;
+    else if (key == LCD_KEY_PREV || key == LCD_KEY_NEXT) {
+        const int dir = key == LCD_KEY_NEXT ? 1 : -1;
+        if (lcd_mode == LCD_MODE_CENTER) {
+            int f = (int)frequency_mhz + dir * (int)lcd_steps[lcd_step];
+            if (f < (int)RX_FREQ_MIN) f = RX_FREQ_MIN;
+            if (f > (int)RX_FREQ_MAX) f = RX_FREQ_MAX;
+            if ((unsigned)f != frequency_mhz) lcd_tune((unsigned)f);
+        } else if (!repeat && lcd_mode == LCD_MODE_SPAN) lcd_span = lcd_adjust(lcd_span, 4, dir);
+        else if (!repeat && lcd_mode == LCD_MODE_STEP) lcd_step = lcd_adjust(lcd_step, 4, dir);
+        else if (lcd_mode == LCD_MODE_GAIN) {
+            int g = (int)lcd_gain + dir * (int)LCD_GAIN_STEP;
+            if (g >= 0 && g <= (int)gain_max) lcd_gain = (unsigned)g;
+        }
+    }
+    if (!lcd_gain_held) { lcd_host_agc = hardware_agc; lcd_host_gain = gain_code; lcd_gain_held = true; }
+    if (hardware_agc || gain_code != lcd_gain) { hardware_agc = false; gain_code = lcd_gain; apply_gain(); }
+    const unsigned rate = lcd_rate();
+    /* Under the host's automatic filter, wide spans would lose their edges. */
+    const int host_filter = rx_filter;
+    if (host_filter < 0 && lcd_spans[lcd_span] >= 40) rx_filter = rx_bandwidth_dcap(LCD_FILTER_MHZ);
+    lcd_quiet = true;
+    lcd_view_capture_begin();
+    const bool ok = lcd_capture(rate);
+    lcd_view_capture_end(frequency_mhz, lcd_rate_hz(rate));
+    lcd_quiet = false;
+    rx_filter = host_filter;
+    const lcd_view_info_t info = {.mhz = frequency_mhz, .rate_hz = lcd_rate_hz(rate), .span_mhz = lcd_spans[lcd_span],
+                                  .step_mhz = lcd_steps[lcd_step], .gain = gain_code, .mode = (lcd_mode_t)lcd_mode,
+                                  .status = !ok, .battery = -1};
+    lcd_view_draw(&info);
+}
+#endif
 
 static void command(const char *line) {
+#if CONFIG_ESP_SDR_LCD_VIEW
+    if (!strcmp(line, "LCDDUMP?")) { char h[1600]; lcd_view_dump(h, sizeof(h)); burst_serial_send(h, strlen(h)); return; }
+    if (!strcmp(line, "LCDINPUT?")) { char h[160]; lcd_board_input_status(h, sizeof(h)); reply("%s", h); return; }
+#endif
     if (burst_version_command(line)) return;
     if (burst_gpio_command(line)) return;
 #ifdef RING_PROBE
@@ -271,12 +388,33 @@ void app_main(void) {
     gain_max = (REG_READ(RX_GAIN) >> 8) & 127;
     REG_CLR_BIT(RX_GAIN, BIT(23)); /* Hardware AGC is the default. */
     fflush(stdout);
+#if CONFIG_ESP_SDR_LCD_VIEW
+    lcd_view_init(); /* before GPIO control claims the free pins */
+    /* Start centered on the 2.4 GHz Wi-Fi band (ch7). */
+    lcd_tune(2442);
+#endif
     burst_serial_init();
     char line[128];
+#if CONFIG_ESP_SDR_LCD_VIEW
+    /* A host command holds off the LCD view until RELEASE or five seconds
+     * of silence. */
+    int64_t lease_deadline = 0;
+#endif
     for (;;) {
         int status = burst_serial_poll_line(line, sizeof(line));
-        if (!status) { vTaskDelay(1); continue; }
+        if (!status) {
+#if CONFIG_ESP_SDR_LCD_VIEW
+            if (esp_timer_get_time() >= lease_deadline) { lcd_cycle(); continue; }
+#endif
+            vTaskDelay(1); continue;
+        }
+#if CONFIG_ESP_SDR_LCD_VIEW
+        lcd_release_gain(); /* the host sees its own gain mode */
+#endif
         if (status < 0) reply("ERR command_length\n");
         else command(line);
+#if CONFIG_ESP_SDR_LCD_VIEW
+        lease_deadline = status > 0 && !strcmp(line, "RELEASE") ? 0 : esp_timer_get_time() + 5000000;
+#endif
     }
 }
