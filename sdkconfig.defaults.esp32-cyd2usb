@@ -1,0 +1,7 @@
+# ESP32-2432S028R with an ST7789 panel (micro-USB and USB-C, "CYD2USB")
+# overlay; apply after sdkconfig.defaults.esp32:
+#   -DSDKCONFIG_DEFAULTS="sdkconfig.defaults.esp32;sdkconfig.defaults.esp32-cyd2usb"
+CONFIG_ESP_SDR_LCD_VIEW=y
+CONFIG_ESP_SDR_LCD_BOARD_CYD=y
+CONFIG_ESP_SDR_LCD_CYD_ST7789=y
+# The board has 4 MB of flash; the 2 MB image layout is kept.

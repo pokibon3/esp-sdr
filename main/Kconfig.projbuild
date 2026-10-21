@@ -102,4 +102,17 @@ menu "ESP-SDR LCD view"
 
     endchoice
 
+    choice ESP_SDR_LCD_CYD_PANEL
+        prompt "CYD display controller"
+        depends on ESP_SDR_LCD_BOARD_CYD
+        default ESP_SDR_LCD_CYD_ILI9341
+
+        config ESP_SDR_LCD_CYD_ILI9341
+            bool "ILI9341 (one micro-USB port)"
+
+        config ESP_SDR_LCD_CYD_ST7789
+            bool "ST7789 (micro-USB and USB-C, CYD2USB)"
+
+    endchoice
+
 endmenu

@@ -3,7 +3,8 @@
  * controller on its own pins (SPI3/VSPI, polled). The panel reset is tied to
  * EN, so it gets a software reset. The board has no front buttons: touches
  * map to keys through lcd_view_key_at(). The RGB LED (active low) is kept
- * off. Variants with an ST7789 panel are not supported. */
+ * off. Two-port boards (CYD2USB) carry an ST7789 instead, selected with
+ * CONFIG_ESP_SDR_LCD_CYD_ST7789; there is no reliable run-time detection. */
 #include <stdio.h>
 
 #include "driver/gpio.h"
@@ -59,6 +60,19 @@ typedef struct {
     uint8_t data[15];
 } panel_cmd_t;
 
+#if CONFIG_ESP_SDR_LCD_CYD_ST7789
+/* Software reset and wake, then the ILI9341 orientation; the ST7789 panel
+ * is IPS and needs inverted colors. */
+static const panel_cmd_t init_cmds[] = {
+    {0x01, 0, 150, {0}},
+    {0x11, 0, 120, {0}},
+    {0x3a, 1, 0, {0x55}},
+    {0x36, 1, 0, {0x28}},
+    {0x21, 0, 0, {0}},
+    {0x13, 0, 10, {0}},
+    {0x29, 0, 20, {0}},
+};
+#else
 /* Software reset, then esp_lcd_ili9341's default sequence. */
 static const panel_cmd_t init_cmds[] = {
     {0x01, 0, 150, {0}},
@@ -87,6 +101,7 @@ static const panel_cmd_t init_cmds[] = {
     {0x11, 0, 120, {0}},
     {0x29, 0, 20, {0}},
 };
+#endif
 
 void lcd_board_init(unsigned max_rows, lcd_board_sent_cb_t sent) {
     on_sent = sent;

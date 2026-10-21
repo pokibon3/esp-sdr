@@ -146,8 +146,10 @@ raise it. Touch calibration uses common CYD raw limits (`TOUCH_*` in
 `main/lcd/lcd_board_cyd.c`); `LCDINPUT?` prints the raw reading. The host
 uses the board's USB-UART bridge as usual; a command pauses the view until
 `RELEASE` or five seconds of silence. Gain index 35 is the S3's default and
-is not characterized on the ESP32. Boards with an ST7789 panel (two USB
-ports) are not supported.
+is not characterized on the ESP32. Boards with two USB ports (CYD2USB)
+carry an ST7789 instead: build them with `sdkconfig.defaults.esp32-cyd2usb`
+in place of `sdkconfig.defaults.esp32-cyd`. The panel is chosen at build
+time because run-time detection is unreliable.
 
 ```sh
 idf.py -B build-esp32-cyd -DIDF_TARGET=esp32 -DSDKCONFIG=sdkconfig.esp32-cyd \
@@ -235,7 +237,12 @@ idf.py -B build-esp32-cyd -p /dev/cu.usbserial-XXXX flash
 - ESP32 には S3 のような連続取り込みがないため、約 40 ms の間 16128 サンプルずつの取り込みを繰り返し、256 点 FFT のピークを表示します。S3 版より取りこぼしが多くなります。
 - ゲイン 35 は S3 の既定値で、ESP32 では未評価です。
 - PC からは基板の USB シリアル（UART）で通常どおり使えます。コマンドが届くと表示が止まり、`RELEASE` または 5 秒の無通信で戻ります。
-- USB 端子が 2 つある ST7789 版の CYD には対応していません。
+- USB 端子が 2 つ（micro-USB と USB-C）ある CYD は液晶ドライバが ST7789 です。設定ファイルを `sdkconfig.defaults.esp32-cyd2usb` に替えてビルドします（自動判別はしません）。
+
+```sh
+idf.py -B build-esp32-cyd2usb -DIDF_TARGET=esp32 -DSDKCONFIG=sdkconfig.esp32-cyd2usb \
+  "-DSDKCONFIG_DEFAULTS=sdkconfig.defaults.esp32;sdkconfig.defaults.esp32-cyd2usb" build
+```
 
 **注意**
 
