@@ -2,8 +2,8 @@
  *
  * The receiver runs short 256-bin captures, then draws between runs with
  * interrupts enabled. S3 routes the SPEC output queue of a ring run here
- * instead of USB; the ESP32 hands over each snapshot FFT. The panel and
- * input come from the board layer (lcd_board.h). */
+ * instead of USB; the ESP32 hands over each snapshot's mean spectrum. The
+ * panel and input come from the board layer (lcd_board.h). */
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -89,7 +89,7 @@ IRAM_ATTR static int view_sink(const uint8_t *p, unsigned n) {
     return (int)n;
 }
 
-/* Snapshot backends: one FFT's power codes, natural order. */
+/* Snapshot backends: one spectrum's power codes, natural order. */
 void lcd_view_add_spectrum(const uint8_t *codes) {
     for (unsigned b = 0; b < BINS; b++)
         if (codes[b] > acc[b]) acc[b] = codes[b];

@@ -138,9 +138,9 @@ with a + while charging.
 The original ESP32 runs the view on the **ESP32-2432S028R** ("Cheap Yellow
 Display", 2.8-inch ILI9341) with `sdkconfig.defaults.esp32-cyd` on top of
 `sdkconfig.defaults.esp32`. The ESP32 has no ring backend: each run repeats
-16128-sample snapshots for about 40 ms and keeps every bin's peak over
-their 256-point FFTs, so it analyzes a smaller part of the signal than the
-S3. The XPT2046 resistive touch works like the CoreS3's screen: a mode box
+16128-sample snapshots for about 40 ms, averages the power of 16 evenly
+spaced 256-point FFTs in each, like the S3's frames, and keeps every bin's
+peak, so it misses more short bursts than the S3. The XPT2046 resistive touch works like the CoreS3's screen: a mode box
 selects its setting, and the left, middle and right thirds lower, cycle and
 raise it. Touch calibration uses common CYD raw limits (`TOUCH_*` in
 `main/lcd/lcd_board_cyd.c`); `LCDINPUT?` prints the raw reading. The host
@@ -234,7 +234,7 @@ idf.py -B build-esp32-cyd -p /dev/cu.usbserial-XXXX flash
 
 操作は CoreS3 と同じくタッチです（上部の枠で項目を選択、画面の左・中央・右 1/3 で下げる・切り替え・上げる）。抵抗膜タッチなので、しっかり押してください。位置がずれる場合は `main/lcd/lcd_board_cyd.c` の `TOUCH_*` を調整します（`LCDINPUT?` で生の値を確認できます）。
 
-- ESP32 には S3 のような連続取り込みがないため、約 40 ms の間 16128 サンプルずつの取り込みを繰り返し、256 点 FFT のピークを表示します。S3 版より取りこぼしが多くなります。
+- ESP32 には S3 のような連続取り込みがないため、約 40 ms の間 16128 サンプルずつの取り込みを繰り返し、各取り込みから等間隔に 16 区間を 256 点 FFT して平均した電力のピークを表示します（S3 版と同じく平均値のピーク）。S3 版より短い信号の取りこぼしが多くなります。
 - ゲイン 35 は S3 の既定値で、ESP32 では未評価です。
 - PC からは基板の USB シリアル（UART）で通常どおり使えます。コマンドが届くと表示が止まり、`RELEASE` または 5 秒の無通信で戻ります。
 - USB 端子が 2 つ（micro-USB と USB-C）ある CYD は液晶ドライバが ST7789 です。設定ファイルを `sdkconfig.defaults.esp32-cyd2usb` に替えてビルドします（自動判別はしません）。

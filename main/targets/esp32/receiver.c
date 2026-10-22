@@ -95,14 +95,16 @@ static void prepare_rx(void) {
 }
 
 /* Clock selectors: 0=16 MS/s, 1=80 MS/s, 2=40 MS/s. Hardware sampling,
- * not software decimation. Rates inferred from capture-duration slopes. */
-static bool acquire_iq(unsigned n, unsigned source, unsigned clock, unsigned *capture_us) {
+ * not software decimation. Rates inferred from capture-duration slopes.
+ * spot checks only the sentinels around the last sample: the full sweep
+ * takes about 1 ms, five times the capture itself at 80 MS/s. */
+static bool acquire_iq(unsigned n, unsigned source, unsigned clock, bool spot, unsigned *capture_us) {
     if (n < 256 || n > MAX_SAMPLES || source > 3 || clock > 2) {
         reply("ERR args\n");
         return false;
     }
     REG_WRITE(DUMP_CTRL, 0);
-    for (unsigned j = 0; j < CAPACITY; j++) samples[j] = SENTINEL;
+    for (unsigned j = spot ? n - 1 : 0; j < CAPACITY; j++) samples[j] = SENTINEL;
     filter_apply();
     uint32_t owner = DPORT_REG_READ(DPORT_IRAM_DRAM_AHB_SEL_REG);
     uint32_t byte_select = REG_READ(DUMP_BYTES);
@@ -126,7 +128,7 @@ static bool acquire_iq(unsigned n, unsigned source, unsigned clock, unsigned *ca
         reply("ERR capture_timeout\n");
         return false;
     }
-    for (unsigned j = 0; j < CAPACITY; j++) {
+    for (unsigned j = spot ? n - 1 : 0; j < CAPACITY; j++) {
         if ((j < n && samples[j] == SENTINEL) || (j >= n && samples[j] != SENTINEL)) {
             reply("ERR capture_memory %u\n", j);
             return false;
@@ -138,7 +140,7 @@ static bool acquire_iq(unsigned n, unsigned source, unsigned clock, unsigned *ca
 
 static bool spectrum_acquire(unsigned n, unsigned rate, const uint32_t **data, unsigned *elapsed) {
     unsigned clock = rate == 6 ? 0 : rate == 1 ? 2 : 1;
-    bool ok = acquire_iq(n, 0, clock, elapsed);
+    bool ok = acquire_iq(n, 0, clock, false, elapsed);
     *data = samples;
     return ok;
 }
@@ -147,7 +149,7 @@ static bool spectrum_acquire(unsigned n, unsigned rate, const uint32_t **data, u
 
 static bool capture(unsigned n, unsigned source, unsigned clock, unsigned bits) {
     unsigned elapsed;
-    if (!acquire_iq(n, source, clock, &elapsed)) return false;
+    if (!acquire_iq(n, source, clock, false, &elapsed)) return false;
     size_t bytes = n * 4;
     uint8_t *packed = (uint8_t *)samples;
     if (bits == 8) {
@@ -222,6 +224,7 @@ static bool capture_rate(unsigned n, unsigned rate, unsigned format) {
 #define LCD_GAIN_DEFAULT 35u
 #define LCD_GAIN_STEP 10u
 #define LCD_FILTER_MHZ 40u
+#define LCD_MEANS 16u
 static bool lcd_gain_held, lcd_host_agc;
 static unsigned lcd_host_gain;
 static void lcd_release_gain(void) {
@@ -241,39 +244,48 @@ static void lcd_tune(unsigned mhz) {
     frequency_mhz = mhz; tune_rx(mhz); prepare_rx(); apply_gain();
 }
 static void lcd_no_poll(void *context) { (void)context; }
-/* Same scaling as SPEC (spectrum.c), so the codes match the host's dBFS. */
-static bool lcd_capture(unsigned rate) {
+/* Same scaling as SPEC (spectrum.c), so the codes match the host's dBFS.
+ * Like the S3's SPEC frames, each snapshot yields its mean power, here over
+ * LCD_MEANS evenly spaced blocks: all 63 would take about 19 ms, leaving two
+ * snapshots per run. Against a CoreS3 side by side, 16 matched its signal
+ * levels; peaks of single FFTs read about 10 dB higher. IRAM: from flash,
+ * the FFT runs three to four times slower. */
+IRAM_ATTR __attribute__((noinline)) static bool lcd_capture(unsigned rate) {
     static int16_t fft[2 * LCD_BINS] __attribute__((aligned(16)));
     static int16_t window[LCD_BINS];
     static uint8_t codes[LCD_BINS];
+    static uint64_t power[LCD_BINS];
     if (!window[LCD_BINS / 2]) {
         if (!spectrum_fft_init()) return false;
         for (unsigned j = 0; j < LCD_BINS; j++) window[j] = (int16_t)lrintf(16383.5f * (1 - cosf(2 * M_PI * j / LCD_BINS)));
     }
-    const unsigned n = MAX_SAMPLES / LCD_BINS * LCD_BINS;
+    const unsigned n = MAX_SAMPLES / LCD_BINS * LCD_BINS, blocks = n / LCD_BINS, clock = rate == 6 ? 0 : rate == 1 ? 2 : 1;
     spectrum_dc_t dc = {0};
     const int64_t start = esp_timer_get_time();
     do {
-        const uint32_t *words; unsigned elapsed;
-        if (!spectrum_acquire(n, rate, &words, &elapsed)) return false;
-        for (unsigned at = 0; at < n; at += LCD_BINS) {
+        unsigned elapsed;
+        if (!acquire_iq(n, 0, clock, true, &elapsed)) return false;
+        memset(power, 0, sizeof(power));
+        for (unsigned m = 0; m < LCD_MEANS; m++) {
+            const unsigned at = (m * blocks + blocks / 2) / LCD_MEANS * LCD_BINS;
             for (unsigned j = 0; j < LCD_BINS; j++) {
-                const uint32_t w = words[at + j];
+                const uint32_t w = samples[at + j];
                 const int32_t i = (int32_t)(w << 22) >> 22, q = (int32_t)(w << 12) >> 22;
                 fft[2 * j] = spectrum_sat16((i * window[j]) >> 9);
                 fft[2 * j + 1] = spectrum_sat16((q * window[j]) >> 9);
             }
             spectrum_fft_poll(fft, LCD_BINS, dsps_fft_w_table_sc16, lcd_no_poll, NULL);
             spectrum_dc_apply(&dc, fft, LCD_BINS);
-            /* The FFT leaves bit-reversed order. */
-            for (unsigned j = 0, bin = 0; j < LCD_BINS; j++) {
-                codes[bin] = spectrum_power_code(spectrum_complex_power(fft[2 * j], fft[2 * j + 1]));
-                unsigned bit = LCD_BINS >> 1;
-                while (bin & bit) { bin ^= bit; bit >>= 1; }
-                bin ^= bit;
-            }
-            lcd_view_add_spectrum(codes);
+            for (unsigned j = 0; j < LCD_BINS; j++) power[j] += spectrum_complex_power(fft[2 * j], fft[2 * j + 1]);
         }
+        /* The FFT leaves bit-reversed order. */
+        for (unsigned j = 0, bin = 0; j < LCD_BINS; j++) {
+            codes[bin] = spectrum_power_code((uint32_t)(power[j] / LCD_MEANS));
+            unsigned bit = LCD_BINS >> 1;
+            while (bin & bit) { bin ^= bit; bit >>= 1; }
+            bin ^= bit;
+        }
+        lcd_view_add_spectrum(codes);
     } while (esp_timer_get_time() - start < LCD_RUN_MS * 1000);
     return true;
 }

@@ -28,7 +28,7 @@ lcd_key_t lcd_view_key(bool *repeat);
 /* Start a run: route SPEC frames of the next ring_capture_run() (S3) into
  * the view, or take lcd_view_add_spectrum() calls. */
 void lcd_view_capture_begin(void);
-/* Snapshot backends, between begin and end: one FFT's 256 power codes
+/* Snapshot backends, between begin and end: one spectrum's 256 power codes
  * (SPC1 wire codes), natural FFT order. */
 void lcd_view_add_spectrum(const uint8_t *codes);
 /* Bins are LO-relative: a new LO or rate restarts the line and history. */
