@@ -149,7 +149,9 @@ uses the board's USB-UART bridge as usual; a command pauses the view until
 is not characterized on the ESP32. Boards with two USB ports (CYD2USB)
 carry an ST7789 instead: build them with `sdkconfig.defaults.esp32-cyd2usb`
 in place of `sdkconfig.defaults.esp32-cyd`. The panel is chosen at build
-time because run-time detection is unreliable.
+time because run-time detection is unreliable. [LCD view: ESP32-S3 vs original
+ESP32](docs/lcd-esp32-vs-s3.md) (Japanese) compares the CYD with a CoreS3
+side by side.
 
 ```sh
 idf.py -B build-esp32-cyd -DIDF_TARGET=esp32 -DSDKCONFIG=sdkconfig.esp32-cyd \
@@ -238,6 +240,7 @@ idf.py -B build-esp32-cyd -p /dev/cu.usbserial-XXXX flash
 - ゲイン 35 は S3 の既定値で、ESP32 では未評価です。
 - PC からは基板の USB シリアル（UART）で通常どおり使えます。コマンドが届くと表示が止まり、`RELEASE` または 5 秒の無通信で戻ります。
 - USB 端子が 2 つ（micro-USB と USB-C）ある CYD は液晶ドライバが ST7789 です。設定ファイルを `sdkconfig.defaults.esp32-cyd2usb` に替えてビルドします（自動判別はしません）。
+- CoreS3 と並べて測った表示の違いは [ESP32-S3 と無印 ESP32 の違い](docs/lcd-esp32-vs-s3.md) にまとめています。
 
 ```sh
 idf.py -B build-esp32-cyd2usb -DIDF_TARGET=esp32 -DSDKCONFIG=sdkconfig.esp32-cyd2usb \
