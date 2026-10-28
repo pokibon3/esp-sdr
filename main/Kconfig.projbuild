@@ -63,7 +63,7 @@ menu "ESP-SDR LCD view"
         depends on IDF_TARGET_ESP32S3 || IDF_TARGET_ESP32
         default n
         help
-            Draw a spectrum and waterfall on the board's 320x240 display
+            Draw a spectrum and waterfall on the board's display
             while no host owns the serial link. The view runs short spectrum
             captures and draws between them, so it does not analyze every
             sample. Any host command stops the view until the serial lease
@@ -91,6 +91,15 @@ menu "ESP-SDR LCD view"
                 touch. Tapping a mode box selects it; elsewhere the left
                 third lowers, the middle third cycles and the right third
                 raises the setting.
+
+        config ESP_SDR_LCD_BOARD_POCKET_DONGLE
+            bool "Pocket-Dongle-S3"
+            depends on IDF_TARGET_ESP32S3
+            help
+                ST7735S 0.96 inch display, 160x80 landscape, with a compact
+                view. The BOOT button is the only input: a click raises the
+                setting, a double click lowers it, and a hold selects the
+                next of CENTER, SPAN, STEP and GAIN.
 
         config ESP_SDR_LCD_BOARD_CYD
             bool "ESP32-2432S028R (CYD 2.8 inch)"

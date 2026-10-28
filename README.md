@@ -158,9 +158,24 @@ idf.py -B build-esp32-cyd -DIDF_TARGET=esp32 -DSDKCONFIG=sdkconfig.esp32-cyd \
   "-DSDKCONFIG_DEFAULTS=sdkconfig.defaults.esp32;sdkconfig.defaults.esp32-cyd" build
 ```
 
+The **Pocket-Dongle-S3** (ESP32-S3 USB stick with a 0.96-inch ST7735S,
+160×80) runs a compact view with `sdkconfig.defaults.esp32s3-pocket-dongle`
+in place of the BOX-Lite overlay. The header row shows CENTER, SPAN, STEP
+and GAIN as short values (`2442 SP80 ST10 G35`); there are no dBFS or
+frequency labels, and the axis row shows only Wi-Fi channels. The trace
+draws each column's loudest bin. The BOOT button is the only input: a
+click raises the selected setting, a double click lowers it, and a hold of
+0.6 s selects the next setting. The backlight is always on. After flashing
+over USB, the board may stay in download mode; unplug and replug it.
+
+```sh
+idf.py -B build-s3-pocket-dongle -DIDF_TARGET=esp32s3 -DSDKCONFIG=sdkconfig.s3-pocket-dongle \
+  "-DSDKCONFIG_DEFAULTS=sdkconfig.defaults.esp32s3;sdkconfig.defaults.esp32s3-pocket-dongle" build
+```
+
 #### 使い方（日本語）
 
-ESP32-S3-BOX-Lite（または M5Stack CoreS3、ESP32-2432S028R）の画面に、スペクトルとウォーターフォールを PC なしで表示する版です。
+ESP32-S3-BOX-Lite（または M5Stack CoreS3、ESP32-2432S028R、Pocket-Dongle-S3）の画面に、スペクトルとウォーターフォールを PC なしで表示する版です。
 
 **ビルドと書き込み**
 
@@ -246,6 +261,33 @@ idf.py -B build-esp32-cyd -p /dev/cu.usbserial-XXXX flash
 idf.py -B build-esp32-cyd2usb -DIDF_TARGET=esp32 -DSDKCONFIG=sdkconfig.esp32-cyd2usb \
   "-DSDKCONFIG_DEFAULTS=sdkconfig.defaults.esp32;sdkconfig.defaults.esp32-cyd2usb" build
 ```
+
+**Pocket-Dongle-S3（0.96 インチ LCD 付き USB ドングル）**
+
+160×80 の小さい画面向けの簡易表示です。設定ファイルを `sdkconfig.defaults.esp32s3-pocket-dongle` に替えます。
+
+```sh
+idf.py -B build-s3-pocket-dongle -DIDF_TARGET=esp32s3 -DSDKCONFIG=sdkconfig.s3-pocket-dongle \
+  "-DSDKCONFIG_DEFAULTS=sdkconfig.defaults.esp32s3;sdkconfig.defaults.esp32s3-pocket-dongle" build
+idf.py -B build-s3-pocket-dongle -p /dev/cu.usbmodemXXXX flash
+```
+
+書き込み後にダウンロードモードのまま止まることがあります。画面が映らないときは USB を抜き差ししてください。
+
+| 場所 | 内容 |
+| --- | --- |
+| 上部 | 中心周波数・表示幅・刻み幅・ゲインを `2442 SP80 ST10 G35` のように表示。選択中の項目はオレンジ |
+| スペクトル | −20〜−80 dBFS 固定、20 dB ごとの目盛り線（数値なし）。各列はその範囲で最も強いビン |
+| チャンネル行 | Wi-Fi のチャンネル番号 |
+| ウォーターフォール | 上が最新 |
+
+操作は BOOT ボタン 1 つで行います。
+
+| 操作 | 動作 |
+| --- | --- |
+| 1 回押す | 選択中の値を上げる |
+| 2 回続けて押す | 選択中の値を下げる |
+| 長押し（0.6 秒） | 項目を CENTER → SPAN → STEP → GAIN の順に切り替え |
 
 **注意**
 

@@ -1,14 +1,25 @@
-/* Board layer of the LCD view: one 320x240 panel and its input.
- * lcd_board_boxlite.c, lcd_board_cores3.c and lcd_board_cyd.c implement it. */
+/* Board layer of the LCD view: one panel and its input.
+ * lcd_board_boxlite.c, lcd_board_cores3.c, lcd_board_cyd.c and
+ * lcd_board_pocket_dongle.c implement it. */
 #pragma once
 
 #include <stdbool.h>
 #include <stdint.h>
 
+#include "sdkconfig.h"
 #include "lcd_view.h"
 
+#if CONFIG_ESP_SDR_LCD_BOARD_POCKET_DONGLE
+#define LCD_BOARD_W 160
+#define LCD_BOARD_H 80
+#define LCD_BOARD_COMPACT 1    /* one short header row, no dBFS or frequency labels */
+#define LCD_BOARD_ONE_BUTTON 1 /* lcd_board_read_key(): LCD_KEY_ENTER while pressed */
+#else
 #define LCD_BOARD_W 320
 #define LCD_BOARD_H 240
+#define LCD_BOARD_COMPACT 0
+#define LCD_BOARD_ONE_BUTTON 0
+#endif
 
 /* Called from the transfer-done interrupt after each lcd_board_draw(). */
 typedef bool (*lcd_board_sent_cb_t)(void);

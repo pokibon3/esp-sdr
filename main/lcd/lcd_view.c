@@ -22,13 +22,22 @@
 
 #define W LCD_BOARD_W
 #define H LCD_BOARD_H
+#if LCD_BOARD_COMPACT
+/* 160x80: mode boxes hold one short value row; the axis row has only the
+ * Wi-Fi channels. */
+#define HDR_H 10
+#define VAL_Y HDR_H             /* no large values */
+#define SP_H 36
+#define AX_H 10
+#else
 #define HDR_H 26                /* mode boxes: label row, then a large value */
 #define VAL_Y 10                /* top row of the values (LCD_FONT_H tall) */
+#define SP_H 130
+#define AX_H 24
+#endif
 #define BOX_W (W / LCD_MODES)
 #define SP_Y HDR_H              /* spectrum trace */
-#define SP_H 130
 #define AX_Y (SP_Y + SP_H)      /* Wi-Fi channels, then frequency labels */
-#define AX_H 24
 #define WF_Y (AX_Y + AX_H)      /* waterfall, newest row on top */
 #define WF_H (H - WF_Y)
 #define STRIPE 8                /* rows per SPI color transfer */
@@ -387,6 +396,7 @@ static unsigned label_channels(unsigned mhz, unsigned span) {
     return at_lo;
 }
 
+#if !LCD_BOARD_COMPACT
 /* A battery at the right of the GAIN box: outline, terminal nub and a bar
  * to the charge, with the percentage inside, inverted where it crosses the
  * bar. */
@@ -417,6 +427,7 @@ static void draw_battery(int percent, bool charging) {
                 canvas[y0 + row][px >> 3] ^= (uint8_t)(1u << (px & 7));
             }
 }
+#endif
 
 /* Waterfall colors follow the noise: the median of the displayed line in
  * 10 dB steps, with 4 dB of hysteresis, sits 20 dB above bottom_db. */
@@ -442,13 +453,19 @@ void lcd_view_draw(const lcd_view_info_t *info) {
     for (int g = range; g > 0; g -= SP_GRID_DB) { /* the bottom line has no room below it */
         int gy = SP_H - 1 - g * (SP_H - 1) / range;
         if (g < range) grid_row[gy] = true;
+#if !LCD_BOARD_COMPACT
         char s[16];
         snprintf(s, sizeof(s), g == range ? "%d dBFS" : "%d", SP_BOTTOM_DB + g);
         glyphs(&scale[0][0], SCALE_W / 8, SP_H, gy + 2, 1, s, 1);
+#endif
     }
     int prev = 0;
     for (int x = 0; x < W; x++) {
-        int db_x10 = CODE_DBFS_X10(smooth[view_first + x * view_bins / W] / 16u);
+        /* Panels narrower than the bins show each column's loudest bin. */
+        unsigned b0 = view_first + x * view_bins / W, b1 = view_first + (x + 1) * view_bins / W, peak = smooth[b0];
+        for (unsigned b = b0 + 1; b < b1; b++)
+            if (smooth[b] > peak) peak = smooth[b];
+        int db_x10 = CODE_DBFS_X10(peak / 16u);
         int y = SP_H - 1 - (db_x10 - SP_BOTTOM_DB * 10) * (SP_H - 1) / (range * 10);
         y = y < 0 ? 0 : y >= SP_H ? SP_H - 1 : y;
         if (!x) prev = y;
@@ -460,9 +477,20 @@ void lcd_view_draw(const lcd_view_info_t *info) {
     memset(canvas, 0, TEXT_ROWS * sizeof(*canvas));
     char s[16];
     if (!info->rate_hz) goto send; /* blank frame */
+    const unsigned values[LCD_MODES] = {info->mhz, span, info->step_mhz, info->gain};
+#if LCD_BOARD_COMPACT
+    label_channels(info->mhz, span);
+    /* CENTER, SPAN, STEP and GAIN as 2442, SP80, ST10, G35; a capture error
+     * replaces the gain. */
+    static const char *const prefixes[LCD_MODES] = {"", "SP", "ST", "G"};
+    for (unsigned m = 0; m < LCD_MODES; m++) {
+        if (m == LCD_MODE_GAIN && info->status) snprintf(s, sizeof(s), "E%u", (unsigned)info->status);
+        else snprintf(s, sizeof(s), "%s%u", prefixes[m], values[m]);
+        text(1, (int)m * BOX_W + 3, s, 1);
+    }
+#else
     unsigned ch = label_channels(info->mhz, span);
     static const char *const labels[LCD_MODES] = {"CENTER", "SPAN MHz", "STEP MHz", "GAIN"};
-    const unsigned values[LCD_MODES] = {info->mhz, span, info->step_mhz, info->gain};
     for (unsigned m = 0; m < LCD_MODES; m++) {
         text(1, (int)m * BOX_W + 3, labels[m], 1);
         snprintf(box_value[m], sizeof(box_value[m]), "%u", values[m]);
@@ -483,6 +511,7 @@ void lcd_view_draw(const lcd_view_info_t *info) {
     text(HDR_H + 14, W / 2 - 3 * (int)strlen(s), s, 1);
     snprintf(s, sizeof(s), "%u", info->mhz + span / 2);
     text(HDR_H + 14, -(W - 1), s, 1);
+#endif
 send:
 
     for (int y0 = 0, cur = 0; y0 < H; y0 += STRIPE, cur ^= 1) {
@@ -508,6 +537,53 @@ lcd_key_t lcd_view_key_at(int x, int y) {
     return x < W / 3 ? LCD_KEY_PREV : x >= 2 * W / 3 ? LCD_KEY_NEXT : LCD_KEY_ENTER;
 }
 
+#if LCD_BOARD_ONE_BUTTON
+/* One button, read as LCD_KEY_ENTER while pressed: a click raises the
+ * setting, a double click lowers it, and a hold cycles the setting. The
+ * view polls between runs, about every 50 ms. */
+#define CLICK_GAP_US 350000
+#define HOLD_US 600000
+lcd_key_t lcd_view_key(bool *repeat) {
+    static enum { KEY_IDLE, KEY_DOWN, KEY_UP } state;
+    static int64_t since;
+    static unsigned clicks;
+    static bool held;
+    *repeat = false;
+    const bool down = lcd_board_read_key() != LCD_KEY_NONE;
+    const int64_t now = esp_timer_get_time();
+    switch (state) {
+    case KEY_IDLE:
+    case KEY_UP:
+        if (down) {
+            state = KEY_DOWN;
+            since = now;
+            held = false;
+        } else if (state == KEY_UP && now - since >= CLICK_GAP_US) {
+            state = KEY_IDLE;
+            lcd_key_t k = clicks > 1 ? LCD_KEY_PREV : LCD_KEY_NEXT;
+            clicks = 0;
+            return k;
+        }
+        break;
+    case KEY_DOWN:
+        if (down) {
+            if (!held && now - since >= HOLD_US) {
+                held = true;
+                clicks = 0;
+                return LCD_KEY_ENTER;
+            }
+        } else if (held) {
+            state = KEY_IDLE;
+        } else {
+            clicks++;
+            state = KEY_UP;
+            since = now;
+        }
+        break;
+    }
+    return LCD_KEY_NONE;
+}
+#else
 lcd_key_t lcd_view_key(bool *repeat) {
     static lcd_key_t held;
     static int64_t repeat_at;
@@ -529,6 +605,7 @@ lcd_key_t lcd_view_key(bool *repeat) {
     }
     return LCD_KEY_NONE;
 }
+#endif
 
 /* ---- setup -------------------------------------------------------------- */
 
